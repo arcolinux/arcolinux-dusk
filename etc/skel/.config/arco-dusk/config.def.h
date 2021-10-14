@@ -1,7 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
 /* appearance */
-static const unsigned int borderpx       = 5;   /* border pixel of windows */
+static const unsigned int borderpx       = 2;   /* border pixel of windows */
 static const unsigned int snap           = 32;  /* snap pixel */
 static const unsigned int gappih         = 5;   /* horiz inner gap between windows */
 static const unsigned int gappiv         = 5;   /* vert inner gap between windows */
@@ -97,15 +97,15 @@ static int flexwintitle_hiddenweight     = 0;  // hidden window title weight
 static int flexwintitle_floatweight      = 0;  // floating window title weight, set to 0 to not show floating windows
 static int flexwintitle_separator        = borderpx; // width of client separator
 
-static const char *fonts[]               = { "monospace:size=10" };
-static const char dmenufont[]            = "monospace:size=10";
+static const char *fonts[]               = { "monospace:size=11" };
+static const char dmenufont[]            = "monospace:size=11";
 
-static char normfgcolor[]                = "#C6BDBD";
-static char normbgcolor[]                = "#180A13";
+static char normfgcolor[]                = "#fea63c";
+static char normbgcolor[]                = "#191919";
 static char normbordercolor[]            = "#444444";
 
-static char selfgcolor[]                 = "#FFF7D4";
-static char selbgcolor[]                 = "#440000";
+static char selfgcolor[]                 = "#191919";
+static char selbgcolor[]                 = "#fea63c";
 static char selbordercolor[]             = "#440000";
 
 static char titlenormfgcolor[]           = "#C6BDBD";
@@ -333,7 +333,13 @@ static char *colors[][ColCount] = {
 };
 
 static const char *const autostart[] = {
-	"st", NULL,
+	/*"st", NULL,
+	"thunar", NULL,*/
+	"pamac-tray", NULL,
+	"nm-applet", NULL,
+	"picom", NULL,
+	"volumeicon", NULL,
+	"dex", "-a", NULL,
 	NULL /* terminate */
 };
 
@@ -578,7 +584,10 @@ static const Layout layouts[] = {
 #define CMD(...)   { .v = (const char*[]){ NULL, __VA_ARGS__, NULL } }
 
 /* Scratch/Spawn commands:        NULL (scratchkey), command, argument, argument, ..., NULL */
+static const char *filemanager[]  = { NULL, "thunar", NULL };
+static const char *browser[]  = { NULL, "firefox", NULL };
 static const char *termcmd[]  = { NULL, "st", NULL };
+static const char *logout[]  = { NULL, "arcolinux-logout", NULL };
 static const char *dmenucmd[] = {
 	NULL,
 	"dmenu_run",
@@ -597,10 +606,16 @@ static const char *statusclickcmd[] = { NULL, "/path/to/statusclick", NULL };
 static Key keys[] = {
 	/* type       modifier                      key              function                argument */
 	{ KeyPress,   MODKEY,                       XK_d,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
+	{ KeyPress,   MODKEY,                       XK_p,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
+	{ KeyPress,   MODKEY|Shift,                 XK_d,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
+	{ KeyPress,   MODKEY,                       XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
+	{ KeyPress,   ControlMask|Alt,              XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
+	{ KeyPress,   ControlMask|Alt,              XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
+	{ KeyPress,   ControlMask|Alt,              XK_f,            spawn,                  {.v = browser } }, // spawn browser
 	{ KeyPress,   MODKEY,                       XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
-	{ KeyPress,   MODKEY|Shift,                 XK_Return,       riospawn,               {.v = termcmd } }, // draw/spawn a terminal
+	{ KeyPress,   MODKEY|Shift,                 XK_Return,       spawn,                  {.v = filemanager } }, // draw/spawn a terminal
 	{ KeyPress,   MODKEY,                       XK_b,            togglebar,              {0} }, // toggles the display of the bar(s) on the current monitor
-
+	{ KeyPress,   MODKEY,                       XK_x,            spawn,                  {.v = logout } }, // arcolinux-logout
 	{ KeyPress,   MODKEY,                       XK_j,            focusstack,             {.i = +1 } }, // focus on the next client in the stack
 	{ KeyPress,   MODKEY,                       XK_k,            focusstack,             {.i = -1 } }, // focus on the previous client in the stack
 	{ KeyPress,   MODKEY|Alt|Shift,             XK_j,            focusstack,             {.i = +2 } }, // allows focusing on hidden clients
@@ -629,7 +644,8 @@ static Key keys[] = {
 	{ KeyPress,   MODKEY,                       XK_backslash,    togglepinnedws,         {0} }, // toggle pinning of currently selected workspace on the current monitor
 	{ KeyPress,   MODKEY,                       XK_z,            showhideclient,         {0} }, // hide the currently selected client (or show if hidden)
 	{ KeyPress,   MODKEY,                       XK_q,            killclient,             {0} }, // close the currently focused window
-	{ KeyPress,   MODKEY|Shift,                 XK_q,            restart,                {0} }, // restart dusk
+	{ KeyPress,   MODKEY|Shift,                 XK_q,            killclient,             {0} }, // close the currently focused window
+	{ KeyPress,   MODKEY|Shift,                 XK_r,            restart,                {0} }, // restart dusk
 	{ KeyPress,   MODKEY|Ctrl|Alt,              XK_q,            quit,                   {0} }, // exit dusk
 
 	{ KeyPress,   MODKEY,                       XK_a,            markall,                {0} }, // marks all clients on the selected workspace
