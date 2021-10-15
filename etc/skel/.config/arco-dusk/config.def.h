@@ -501,14 +501,14 @@ static const WorkspaceRule wsrules[] = {
 	/*                                                                     ------ icons ------
 	   name,  monitor,  pinned,  layout,  mfact,  nmaster,  nstack,  gaps, def,   vac,  occ,  */
 	{  "1",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟣",   "",   "𝟭", },
-	{  "2",   -1,       0,       9,       .80,   -1,       -1,      -1,    "𝟤",   "",   "𝟮", },
+	{  "2",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟤",   "",   "𝟮", },
 	{  "3",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟥",   "",   "𝟯", },
-	{  "4",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟦",   "",   "𝟰", },
+	{  "4",   -1,       0,       9,       -1,    -1,       -1,      -1,    "𝟦",   "",   "𝟰", },
 	{  "5",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟧",   "",   "𝟱", },
-	{  "6",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟨",   "",   "𝟲", },
-	{  "7",   -1,       0,       10,      .75,   -1,       -1,      -1,    "𝟩",   "",   "𝟳", },
+	{  "6",   -1,       0,       0,       .70,   -1,       -1,      -1,    "𝟨",   "",   "𝟲", },
+	{  "7",   -1,       0,       10,      .70,   -1,       -1,      -1,    "𝟩",   "",   "𝟳", },
 	{  "8",   -1,       0,       1,       -1,    -1,       -1,      -1,    "𝟪",   "",   "𝟴", },
-	{  "9",   -1,       0,       0,       -1,    -1,       -1,      -1,    "𝟫",   "",   "𝟵", },
+	{  "9",   -1,       0,       8,       -1,    -1,       -1,      -1,    "𝟫",   "",   "𝟵", },
 };
 
 static const float mfact     = 0.50; /* factor of master area size [0.05..0.95] */
@@ -881,13 +881,6 @@ static IPCCommand ipccommands[] = {
 static const char *const autostart[] = {
 	/*"st", NULL,
 	"thunar", NULL,*/
-	"pamac-tray", NULL,
-	"nm-applet", NULL,
-	"picom", NULL,
-	/*"picom", "--config", "$HOME/.config/arco-dusk//picom.conf", NULL,*/
-	"volumeicon", NULL,
-	"dex", "-a", NULL,
-	/*"feh --bg-fill --no-xinerama ~/.config/arco-dusk/wallpaper.jpg", NULL,*/
-	"sxhkd", "-c", "~/.config/arco-dusk/sxhkd/sxhkdrc", NULL,
+	"arcolinux-autostart-dusk", NULL, // apps to start /usr/share/local/bin
 	NULL /* terminate */
 };

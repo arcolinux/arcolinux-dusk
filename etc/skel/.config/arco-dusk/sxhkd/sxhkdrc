@@ -121,8 +121,8 @@ super + shift + KP_Enter
 	thunar
 
 #dmenu
-super + shift + d
-	dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'NotoMonoRegular:bold:pixelsize=14'
+#super + shift + d
+#	dmenu_run -i -nb '#191919' -nf '#fea63c' -sb '#fea63c' -sf '#191919' -fn 'NotoMonoRegular:bold:pixelsize=14'
 
 #reload sxhkd:
 super + shift + s
@@ -386,4 +386,4 @@ XF86MonBrightnessDown
 
 #Picom Toggle
 ctrl + alt + o
-    ~/.config/arco-dwm/scripts/picom-toggle.sh
+    ~/.config/arco-dusk/scripts/picom-toggle.sh
