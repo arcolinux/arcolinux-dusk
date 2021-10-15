@@ -1,7 +1,7 @@
 /* See LICENSE file for copyright and license details. */
 
 /* appearance */
-static const unsigned int borderpx       = 2;   /* border pixel of windows */
+static const unsigned int borderpx       = 3;   /* border pixel of windows */
 static const unsigned int snap           = 32;  /* snap pixel */
 static const unsigned int gappih         = 5;   /* horiz inner gap between windows */
 static const unsigned int gappiv         = 5;   /* vert inner gap between windows */
@@ -332,16 +332,6 @@ static char *colors[][ColCount] = {
 	[SchemeFlexSelFloat] = { titleselfgcolor,  selfloatbgcolor,    selfloatbgcolor,        },
 };
 
-static const char *const autostart[] = {
-	/*"st", NULL,
-	"thunar", NULL,*/
-	"pamac-tray", NULL,
-	"nm-applet", NULL,
-	"picom", NULL,
-	"volumeicon", NULL,
-	"dex", "-a", NULL,
-	NULL /* terminate */
-};
 
 /* There are two options when it comes to per-client rules:
  *  - a traditional struct table or
@@ -377,16 +367,17 @@ static const Rule clientrules[] = {
 	{ .instance = "spterm (w)", .scratchkey = 'w', .flags = Floating },
 	{ .instance = "spterm (e)", .scratchkey = 'e', .flags = Floating },
 	{ .instance = "spfm (r)", .scratchkey = 'r', .flags = Floating },
-	{ .class = "Gimp", .workspace = "5", .flags = Floating|SwitchWorkspace },
-	{ .class = "firefox", .workspace = "8", .flags = AttachMaster|SwitchWorkspace },
+	{ .class = "Arcologout.py", .flags = AlwaysOnTop|Centered },
+	/* { .class = "Gimp", .workspace = "5", .flags = Floating|SwitchWorkspace },
+	{ .class = "firefox", .workspace = "8", .flags = AttachMaster|SwitchWorkspace },*/
 	{ .class = "Steam", .flags = IgnoreCfgReqPos|Floating|Centered },
 	{ .class = "steam_app_", .flags = SteamGame|IgnoreCfgReqPos|Floating|Centered },
 	{ .class = "Google-chrome", .role = "GtkFileChooserDialog", .floatpos = "50% 50%", .flags = AlwaysOnTop|Floating },
 	{ .role = "pop-up", .flags = AlwaysOnTop|Floating|Centered },
-	{ .role = "browser", .workspace = "8", .flags = AttachBelow|OnlyModButtons|SwitchWorkspace },
+	/*{ .role = "browser", .workspace = "8", .flags = AttachBelow|OnlyModButtons|SwitchWorkspace },*/
 	{ .class = "Gnome-terminal", .role = "gnome-terminal-preferences", .flags = Centered },
-	{ .class = "Diffuse", .workspace = "4", .flags = NoSwallow|SwitchWorkspace|RevertWorkspace },
-	{ .class = "File-roller", .workspace = "9", .flags = Centered|Floating|SwitchWorkspace|RevertWorkspace },
+	/*{ .class = "Diffuse", .workspace = "4", .flags = NoSwallow|SwitchWorkspace|RevertWorkspace },
+	{ .class = "File-roller", .workspace = "9", .flags = Centered|Floating|SwitchWorkspace|RevertWorkspace },*/
 	{ .class = "Alacritty", .flags = Terminal },
 	{ .class = "st-256color", .flags = Terminal|AttachBottom },
 	{ .class = "XTerm", .flags = Terminal },
@@ -883,4 +874,16 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( viewwsdir, ARG_TYPE_SINT ),
 	IPCCOMMAND( xrdb, ARG_TYPE_NONE ), // reload xrdb / Xresources
 	IPCCOMMAND( zoom, ARG_TYPE_NONE ),
+};
+
+static const char *const autostart[] = {
+	/*"st", NULL,
+	"thunar", NULL,*/
+	"pamac-tray", NULL,
+	"nm-applet", NULL,
+	"picom", NULL,
+	"volumeicon", NULL,
+	"dex", "-a", NULL,
+	"sxhkd", "-c", "~/.config/arco-dusk/sxhkd/sxhkdrc", NULL,
+	NULL /* terminate */
 };
