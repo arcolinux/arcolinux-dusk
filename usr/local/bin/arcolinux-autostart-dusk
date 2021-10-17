@@ -19,7 +19,7 @@ function run {
 
 run pamac-tray
 run nm-applet
-run volume-icon
+run volumeicon
 run xfce4-power-manager
 run /usr/lib/xfce4/notifyd/xfce4-notifyd
 run /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
