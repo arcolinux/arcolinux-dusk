@@ -36,7 +36,7 @@ click_status(Bar *bar, Arg *arg, BarArg *a)
 int
 draw_status(Bar *bar, BarArg *a)
 {
-	return drw_2dtext(drw, a->x, a->y, a->w, a->h, 0, rawstatustext[a->value], 0, 0, 1, a->scheme);
+	return drw_2dtext(drw, a->x, a->y, a->w, a->h, a->lpad, rawstatustext[a->value], 0, 0, 1, a->scheme);
 }
 
 int
@@ -64,6 +64,9 @@ drw_2dtext(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int 
 		drw_setscheme(drw, scheme[defscheme]);
 		drw_rect(drw, x, y, w, h, 1, 1);
 	}
+
+	dx += lpad;
+	lpad = 0;
 	drw_setscheme(drw, scheme[LENGTH(colors)]);
 	drw->scheme[ColFg] = scheme[defscheme][ColFg];
 	drw->scheme[ColBg] = scheme[defscheme][ColBg];
@@ -76,8 +79,11 @@ drw_2dtext(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int 
 
 			text[i] = '\0';
 			tw = TEXTWM(text);
-			drw_text(drw, dx, y, tw, bh, lpad, text, invert, markup, fillbg);
-			dx += tw;
+
+			if (tw) {
+				drw_text(drw, dx, y, tw + lpad * 2, bh, lpad, text, invert, markup, fillbg);
+				dx += tw + lpad;
+			}
 
 			/* process code */
 			while (text[++i] != '^') {
@@ -179,8 +185,10 @@ drw_2dtext(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int 
 	}
 	if (!isCode && len > 0) {
 		tw = TEXTWM(text);
-		drw_text(drw, dx, y, tw, bh, lpad, text, invert, markup, fillbg);
-		dx += tw;
+		if (tw) {
+			drw_text(drw, dx, y, tw + lpad * 2, bh, lpad, text, invert, markup, fillbg);
+			dx += tw + lpad;
+		}
 	}
 	free(p);
 
@@ -190,29 +198,18 @@ drw_2dtext(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int 
 void
 setstatus(const Arg args[], int num_args)
 {
-	Monitor *m;
 	const BarRule *br;
-	Bar *bar;
 
 	int sid = args[0].i;
-	if (sid < 0 || sid > NUM_STATUSES)
+	if (sid < 0 || sid >= NUM_STATUSES)
 		return;
 
 	strcpy(rawstatustext[sid], args[1].v);
 
 	for (int r = 0; r < LENGTH(barrules); r++) {
 		br = &barrules[r];
-		if (br->value == sid && br->drawfunc == draw_status) {
-			for (m = mons; m; m = m->next) {
-				if (br->monitor > -1 && br->monitor != m->num)
-					continue;
-				for (bar = m->bar; bar; bar = bar->next) {
-					if (br->bar > -1 && br->bar != bar->idx)
-						continue;
-					drawbarwin(bar);
-				}
-			}
-		}
+		if (br->value == sid && br->drawfunc == draw_status)
+			drawbarmodule(br, r);
 	}
 }
 

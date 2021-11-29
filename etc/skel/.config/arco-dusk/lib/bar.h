@@ -49,6 +49,8 @@ struct Bar {
 	int bx, by, bw, bh; /* bar geometry */
 	int s[BARRULES]; // width/height, array length == barrules, then use r index for lookup purposes
 	int p[BARRULES]; // x/y position, array length == ^
+	int sscheme[BARRULES]; // start scheme
+	int escheme[BARRULES]; // end scheme
 };
 
 typedef struct {
@@ -60,6 +62,8 @@ typedef struct {
 	int rpad;
 	int value;
 	int scheme;
+	int firstscheme;
+	int lastscheme;
 } BarArg;
 
 typedef struct {
@@ -84,6 +88,7 @@ static void createbar(const BarDef *def, Monitor *m);
 static void drawbar(Monitor *m);
 static void drawbars(void);
 static void drawbarwin(Bar *bar);
+static void drawbarmodule(const BarRule *br, int r);
 static void updatebarpos(Monitor *m);
 static void updatebars(void);
 static void recreatebar(Bar *bar);

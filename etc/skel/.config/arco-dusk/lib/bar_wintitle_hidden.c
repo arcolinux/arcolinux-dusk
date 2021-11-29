@@ -1,7 +1,7 @@
 int
 size_wintitle_hidden(Bar *bar, BarArg *a)
 {
-	if (!bar->mon->selws)
+	if (!bar->mon->selws || !hashidden(bar->mon->selws))
 		return 0;
 	return a->w;
 }
@@ -33,9 +33,12 @@ calc_wintitle_hidden(
 	Client *c;
 	int clientsnhidden = 0;
 	int groupactive = GRP_HIDDEN;
+	firstpwlwintitle = 1;
 
 	for (c = ws->clients; c; c = c->next) {
 		if (ISINVISIBLE(c))
+			continue;
+		if (SKIPTASKBAR(c))
 			continue;
 		if (HIDDEN(c))
 			clientsnhidden++;
@@ -61,6 +64,6 @@ calc_wintitle_hidden(
 		XFillRectangle(drw->dpy, drw->drawable, drw->gc, a->x, a->y, a->w, a->h);
 	}
 
-	c = flextitledrawarea(ws, ws->clients, offx, tabw, clientsnhidden, SCHEMEFOR(GRP_HIDDEN), 0, 1, 0, passx, tabfn, arg, a);
+	flextitledrawarea(ws, ws->clients, offx, tabw, clientsnhidden, SCHEMEFOR(GRP_HIDDEN), 0, 1, 0, passx, tabfn, arg, a);
 	return 1;
 }

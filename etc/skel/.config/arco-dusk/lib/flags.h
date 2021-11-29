@@ -24,12 +24,15 @@ static const unsigned long
 	Locked = 0x4000, // used by setfullscreen, prevents state change
 	Transient = 0x8000, // whether the client has the transient for hint
 	OnlyModButtons = 0x10000, // restricts button keybindings to those that involve modifiers
-	FlagPlaceholder0x20000 = 0x20000,
-	AttachMaster = 0x40000, // attach at the top of the master area
-	AttachAbove = 0x80000, // attach the client before the currently selected client
-	AttachBelow = 0x100000, // attach the client after the currently selected client
-	AttachAside = 0x200000, // attach the client as the first client in the stack area
-	AttachBottom = 0x400000, // attach the client at the end of the list
+	Disallowed = 0x20000, // window is disallowed and will be forcibly killed
+	/* 0x40000, 0x80000, 0x100000 - three bits for attach modes as they are mutually exclusive, still room for two more up to 7 */
+	AttachMaster = 1 << 18, // attach at the top of the master area
+	AttachAbove = 2 << 18, // attach the client before the currently selected client
+	AttachBelow = 3 << 18, // attach the client after the currently selected client
+	AttachAside = 4 << 18, // attach the client as the first client in the stack area
+	AttachBottom = 5 << 18, // attach the client at the end of the list
+	FlagPlaceholder0x200000 = 0x200000,
+	FlagPlaceholder0x400000 = 0x400000,
 	SwitchWorkspace = 0x800000, // automatically moves you to the workspace of the newly opened application
 	EnableWorkspace = 0x1000000, // enables the workspace of the newly opened application in addition to your existing viewed workspaces
 	RevertWorkspace = 0x2000000, // if SwitchWorkspace or EnableWorkspace, closing that window reverts the view back to what it was previously
@@ -42,7 +45,7 @@ static const unsigned long
 	IgnoreDecorationHints = 0x100000000, // ignore decoration hints for client
 	FlagPlaceholder0x200000000 = 0x200000000,
 	FlagPlaceholder0x400000000 = 0x400000000,
-	FlagPlaceholder0x800000000 = 0x800000000,
+	SemiScratchpad = 0x800000000, // a window that switches between being a normal window and a scratchpad window
 	RespectSizeHints = 0x1000000000, // respect size hints for this client when ResizeHints is globally disabled
 	RioDrawNoMatchPID = 0x2000000000, // do not match PID for this client when spawning via riospawn
 	NoBorder = 0x4000000000, // indicates that the client should not be drawn with a border around it
@@ -51,7 +54,7 @@ static const unsigned long
 	ScratchpadStayOnMon = 0x20000000000, // prevents the scratchpad from being moved to the active monitor when toggled
 	Lower = 0x40000000000, // place this window below all other windows, used when window is unmanaged
 	Raise = 0x80000000000, // place this window above all other windows, used when window is unmanaged
-	FlagPlaceholder0x100000000000 = 0x100000000000,
+	SkipTaskbar = 0x100000000000, // do not include the window title for this client on the bar
 	FlagPlaceholder0x200000000000 = 0x200000000000,
 	FlagPlaceholder0x400000000000 = 0x400000000000,
 	FlagPlaceholder0x800000000000 = 0x800000000000,
@@ -78,6 +81,7 @@ static const unsigned long
 	Unmanaged = 0x8000000000000000; // indicates that the client is not to be managed by the window manager
 
 #define ALWAYSONTOP(C) (C && C->flags & AlwaysOnTop)
+#define DISALLOWED(C) (C && C->flags & Disallowed)
 #define HIDDEN(C) (C && ((C->flags & Hidden) || (getstate(C->win) == IconicState)))
 #define ISFLOATING(C) (C && C->flags & (Floating|Sticky))
 #define ISFIXED(C) (C && C->flags & Fixed)
@@ -92,8 +96,8 @@ static const unsigned long
 #define ISURGENT(C) (C && C->flags & Urgent)
 #define ISMARKED(C) (C && C->flags & Marked)
 #define ISUNMANAGED(C) (C && C->flags & Unmanaged)
-#define ISVISIBLE(C) (C && C->ws->visible && !(C->flags & (Invisible|Hidden)))
-#define ISINVISIBLE(C) (C && C->flags & Invisible)
+#define ISVISIBLE(C) (C && C->ws->visible && C->win && !(C->flags & (Invisible|Hidden)))
+#define ISINVISIBLE(C) (C && (!C->win || C->flags & Invisible))
 #define IGNORECFGREQ(C) (C && C->flags & IgnoreCfgReq)
 #define IGNORECFGREQPOS(C) (C && C->flags & IgnoreCfgReqPos)
 #define IGNORECFGREQSIZE(C) (C && C->flags & IgnoreCfgReqSize)
@@ -112,6 +116,8 @@ static const unsigned long
 #define RIODRAWNOMATCHPID(C) (C && C->flags & RioDrawNoMatchPID)
 #define RULED(C) (C && C->flags & Ruled)
 #define SCRATCHPADSTAYONMON(C) (C && C->flags & ScratchpadStayOnMon)
+#define SEMISCRATCHPAD(C) (C && C->flags & SemiScratchpad)
+#define SKIPTASKBAR(C) (C && C->flags & SkipTaskbar)
 #define STEAMGAME(C) (C && C->flags & SteamGame)
 #define SWITCHWORKSPACE(C) (C && C->flags & SwitchWorkspace)
 #define ENABLEWORKSPACE(C) (C && C->flags & EnableWorkspace)

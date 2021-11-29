@@ -16,9 +16,9 @@ barhover(XEvent *e, Bar *bar)
 			continue;
 		if (br->monitor != 'A' && br->monitor != -1 && br->monitor != bar->mon->num)
 			continue;
-		if (bar->vert && (bar->p[r] > ev->y || ev->y > bar->p[r] + bar->s[r]))
+		if (bar->vert && (bar->p[r] > ev->y || ev->y > bar->p[r] + br->lpad + bar->s[r] + br->rpad))
 			continue;
-		if (!bar->vert && (bar->p[r] > ev->x || ev->x > bar->p[r] + bar->s[r]))
+		if (!bar->vert && (bar->p[r] > ev->x || ev->x > bar->p[r] + br->lpad + bar->s[r] + br->rpad))
 			continue;
 
 		if (bar->vert) {
@@ -53,13 +53,13 @@ barpress(XButtonPressedEvent *ev, Monitor *m, Arg *arg, int *click)
 		if (ev->window == bar->win) {
 			for (r = 0; r < LENGTH(barrules); r++) {
 				br = &barrules[r];
-				if (br->bar != bar->idx || (br->monitor == 'A' && m != selmon) || br->clickfunc == NULL)
+				if (br->bar != bar->idx || (br->monitor == 'A' && m != selmon) || br->clickfunc == NULL || !bar->s[r])
 					continue;
 				if (br->monitor != 'A' && br->monitor != -1 && br->monitor != bar->mon->num)
 					continue;
-				if (bar->vert && (bar->p[r] > ev->y || ev->y > bar->p[r] + bar->s[r]))
+				if (bar->vert && (bar->p[r] > ev->y || ev->y > bar->p[r] + br->lpad + bar->s[r] + br->rpad))
 					continue;
-				if (!bar->vert && (bar->p[r] > ev->x || ev->x > bar->p[r] + bar->s[r]))
+				if (!bar->vert && (bar->p[r] > ev->x || ev->x > bar->p[r] + br->lpad + bar->s[r] + br->rpad))
 					continue;
 
 				if (bar->vert) {
@@ -145,8 +145,10 @@ drawbarwin(Bar *bar)
 
 	if (enabled(BarActiveGroupBorderColor))
 		getclientcounts(bar->mon->selws, &groupactive, &ignored, &ignored, &ignored, &ignored, &ignored, &ignored);
+	else if (enabled(BarMasterGroupBorderColor))
+		groupactive = GRP_MASTER;
 	else
-		groupactive = GRP_MASTER; // TOOO, hmm, dependency on flexwintitle?
+		groupactive = GRP_NOSELECTION;
 	bar->scheme = getschemefor(bar->mon->selws, groupactive, bar->mon == selmon);
 
 	if (bar->borderpx) {
@@ -167,6 +169,7 @@ drawbarwin(Bar *bar)
 
 	for (r = 0; r < LENGTH(barrules); r++) {
 		br = &barrules[r];
+		bar->s[r] = 0;
 		if (br->bar != bar->idx || !br->sizefunc || (br->monitor == 'A' && bar->mon != selmon))
 			continue;
 		if (br->monitor != 'A' && br->monitor != -1 && br->monitor != bar->mon->num &&
@@ -177,22 +180,29 @@ drawbarwin(Bar *bar)
 		barg.rpad = br->rpad;
 		barg.value = br->value;
 		barg.scheme = (br->scheme > -1 ? br->scheme : SchemeNorm);
+		barg.firstscheme = -1;
+		barg.lastscheme = -1;
 
 		drw_setscheme(drw, scheme[barg.scheme]);
 
 		mw = (br->alignment < BAR_ALIGN_RIGHT_LEFT ? lw : rw);
 		barg.w = MAX(0, mw - br->lpad - br->rpad);
 		w = br->sizefunc(bar, &barg);
-		barg.w = w = MIN(barg.w, w);
+		bar->s[r] = w = MIN(barg.w, w);
+
+		if (!bar->s[r])
+			continue;
 
 		if (w) {
 			w += br->lpad;
 			if (w + br->rpad <= mw)
 				w += br->rpad;
 		}
-		bar->s[r] = w;
 
-		if (lw <= 0) { // if left is exhausted then switch to right side, and vice versa
+		barg.w = w;
+
+		/* If left is exhausted then switch to right side, and vice versa */
+		if (lw <= 0) {
 			lw = rw;
 			lx = rx;
 		} else if (rw <= 0) {
@@ -208,6 +218,57 @@ drawbarwin(Bar *bar)
 		case BAR_ALIGN_TOP:
 		case BAR_ALIGN_LEFT:
 			bar->p[r] = lx;
+			break;
+		case BAR_ALIGN_TOP_BOTTOM:
+		case BAR_ALIGN_LEFT_RIGHT:
+		case BAR_ALIGN_BOTTOM:
+		case BAR_ALIGN_RIGHT:
+			bar->p[r] = lx + lw - w;
+			break;
+		case BAR_ALIGN_TOP_CENTER:
+		case BAR_ALIGN_LEFT_CENTER:
+		case BAR_ALIGN_CENTER:
+			bar->p[r] = lx + lw / 2 - w / 2;
+			break;
+		case BAR_ALIGN_BOTTOM_TOP:
+		case BAR_ALIGN_RIGHT_LEFT:
+			bar->p[r] = rx;
+			break;
+		case BAR_ALIGN_BOTTOM_BOTTOM:
+		case BAR_ALIGN_RIGHT_RIGHT:
+			bar->p[r] = rx + rw - w;
+			break;
+		case BAR_ALIGN_BOTTOM_CENTER:
+		case BAR_ALIGN_RIGHT_CENTER:
+			bar->p[r] = rx + rw / 2 - w / 2;
+			break;
+		}
+
+		if (br->drawfunc == draw_powerline) {
+
+			if (reducepowerline(bar, r)) {
+				bar->s[r] = 0;
+				continue;
+			}
+
+			/* If the powerline is at the start or end of the bar, then keep the powerline but
+			 * reduce the size by half. When drawn this will be made a solid block rather than
+			 * slashes or arrows. */
+			if (bar->p[r] == bar->borderpx)
+				barg.w = w = bar->s[r] = bar->s[r] / 2;
+			else if (bar->p[r] + bar->s[r] + bar->borderpx == bar->bw) {
+				bar->p[r] += bar->s[r] / 2 + bar->s[r] % 2;
+				barg.w = w = bar->s[r] = bar->s[r] / 2;
+			}
+		}
+
+		switch (br->alignment) {
+		default:
+		case BAR_ALIGN_NONE:
+		case BAR_ALIGN_TOP_TOP:
+		case BAR_ALIGN_LEFT_LEFT:
+		case BAR_ALIGN_TOP:
+		case BAR_ALIGN_LEFT:
 			if (lx == rx) {
 				rx += w;
 				rw -= w;
@@ -219,7 +280,6 @@ drawbarwin(Bar *bar)
 		case BAR_ALIGN_LEFT_RIGHT:
 		case BAR_ALIGN_BOTTOM:
 		case BAR_ALIGN_RIGHT:
-			bar->p[r] = lx + lw - w;
 			if (lx == rx)
 				rw -= w;
 			lw -= w;
@@ -227,7 +287,6 @@ drawbarwin(Bar *bar)
 		case BAR_ALIGN_TOP_CENTER:
 		case BAR_ALIGN_LEFT_CENTER:
 		case BAR_ALIGN_CENTER:
-			bar->p[r] = lx + lw / 2 - w / 2;
 			if (lx == rx) {
 				rw = rx + rw - bar->p[r] - w;
 				rx = bar->p[r] + w;
@@ -236,7 +295,6 @@ drawbarwin(Bar *bar)
 			break;
 		case BAR_ALIGN_BOTTOM_TOP:
 		case BAR_ALIGN_RIGHT_LEFT:
-			bar->p[r] = rx;
 			if (lx == rx) {
 				lx += w;
 				lw -= w;
@@ -246,14 +304,12 @@ drawbarwin(Bar *bar)
 			break;
 		case BAR_ALIGN_BOTTOM_BOTTOM:
 		case BAR_ALIGN_RIGHT_RIGHT:
-			bar->p[r] = rx + rw - w;
 			if (lx == rx)
 				lw -= w;
 			rw -= w;
 			break;
 		case BAR_ALIGN_BOTTOM_CENTER:
 		case BAR_ALIGN_RIGHT_CENTER:
-			bar->p[r] = rx + rw / 2 - w / 2;
 			if (lx == rx) {
 				lw = lx + lw - bar->p[r] + w;
 				lx = bar->p[r] + w;
@@ -261,19 +317,43 @@ drawbarwin(Bar *bar)
 			rw = bar->p[r] - rx;
 			break;
 		}
+
 		if (bar->vert) {
 			barg.x = bar->borderpx + 5;
-			barg.y = bar->p[r] + br->lpad;
+			barg.y = bar->p[r];
 			barg.h = barg.w;
 			barg.w = bar->bw - 2 * bar->borderpx;
 		} else {
-			barg.x = bar->p[r] + br->lpad;
+			barg.x = bar->p[r];
 			barg.y = bar->borderpx;
 			barg.h = bar->bh - 2 * bar->borderpx;
 		}
 
-		if (br->drawfunc)
+		if (br->drawfunc && br->drawfunc != draw_powerline) {
 			total_drawn += br->drawfunc(bar, &barg);
+			bar->sscheme[r] = (barg.firstscheme != -1 ? barg.firstscheme : barg.scheme);
+			bar->escheme[r] = (barg.lastscheme != -1 ? barg.lastscheme : barg.scheme);
+		}
+	}
+
+	/* Draw powerline separators */
+	for (r = 0; r < LENGTH(barrules); r++) {
+		br = &barrules[r];
+		if (!bar->s[r] || br->drawfunc != draw_powerline)
+			continue;
+
+		barg.lpad = br->lpad;
+		barg.rpad = br->rpad;
+		barg.value = br->value;
+		barg.scheme = (br->scheme > -1 ? br->scheme : SchemeNorm);
+		barg.firstscheme = schemeleftof(bar, r);
+		barg.lastscheme = schemerightof(bar, r);
+		barg.x = bar->p[r] + br->lpad;
+		barg.y = bar->borderpx;
+		barg.h = bar->bh - 2 * bar->borderpx;
+		barg.w = bar->s[r];
+
+		br->drawfunc(bar, &barg);
 	}
 
 	if (total_drawn == 0 && bar->showbar) {
@@ -292,6 +372,50 @@ drawbarwin(Bar *bar)
 		arrangemon(bar->mon);
 	} else
 		drw_map(drw, bar->win, 0, 0, bar->bw, bar->bh);
+}
+
+void
+drawbarmodule(const BarRule *br, int r)
+{
+	Monitor *m;
+	Bar *bar;
+	BarArg barg = { 0 };
+	barg.lpad = br->lpad;
+	barg.rpad = br->rpad;
+	barg.value = br->value;
+	barg.scheme = (br->scheme > -1 ? br->scheme : SchemeNorm);
+
+	for (m = mons; m; m = m->next) {
+		if (br->monitor > -1 && br->monitor != m->num)
+			continue;
+		for (bar = m->bar; bar; bar = bar->next) {
+			if (br->bar > -1 && br->bar != bar->idx)
+				continue;
+
+			if (bar->vert) {
+				barg.x = bar->borderpx + 5;
+				barg.y = bar->p[r];
+				barg.h = bar->s[r] + barg.lpad + barg.rpad;
+				barg.w = bar->bw - 2 * bar->borderpx;
+			} else {
+				barg.y = bar->borderpx;
+				barg.x = bar->p[r];
+				barg.w = bar->s[r] + barg.lpad + barg.rpad;
+				barg.h = bar->bh - 2 * bar->borderpx;
+			}
+
+			/* Optimisation, if the bar module size has not changed then we can just
+			   update the designated part of the bar rather than drawing the entire
+			   bar, otherwise only update the bars that have this module. */
+			if (bar->s[r] == br->sizefunc(bar, &barg)) {
+				if (!bar->s[r])
+					continue;
+				br->drawfunc(bar, &barg);
+				drw_map(drw, bar->win, barg.x, barg.y, barg.w, barg.h);
+			} else
+				drawbarwin(bar);
+		}
+	}
 }
 
 void
@@ -405,7 +529,7 @@ reducewindowarea(Monitor *m)
 
 	for (bar = m->bar; bar; bar = bar->next) {
 		if (bar->vert) { // vertical bar
-			if (bar->bx < m->mw / 2) { // left aligned
+			if (bar->bx < m->mx + m->mw / 2) { // left aligned
 				if (m->wx < bar->bx + bar->bw) {
 					m->ww -= (bar->bx + bar->bw - m->wx);
 					m->wx = bar->bx + bar->bw;
@@ -416,7 +540,7 @@ reducewindowarea(Monitor *m)
 				}
 			}
 		} else { // horizontal bar
-			if (bar->by < m->mh / 2) { // top bar
+			if (bar->by < m->my + m->mh / 2) { // top bar
 				if (m->wy < bar->by + bar->bh) {
 					m->wh -= (bar->by + bar->bh - m->wy);
 					m->wy = bar->by + bar->bh;

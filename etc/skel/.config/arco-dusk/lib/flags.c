@@ -36,7 +36,7 @@ toggleflagop(Client *c, const unsigned long flag, int op)
 		addflag(c, flag);
 		break;
 	case 2: /* _NET_WM_STATE_TOGGLE */
-		c->flags ^= flag;
+		toggleflag(c, flag);
 		break;
 	}
 }
@@ -85,8 +85,8 @@ getflagbyname(const char *name)
 		return Transient;
 	else if (strcmp(name, "OnlyModButtons") == 0)
 		return OnlyModButtons;
-	else if (strcmp(name, "FlagPlaceholder0x20000") == 0)
-		return FlagPlaceholder0x20000;
+	else if (strcmp(name, "Disallowed") == 0)
+		return Disallowed;
 	else if (strcmp(name, "AttachMaster") == 0)
 		return AttachMaster;
 	else if (strcmp(name, "AttachAbove") == 0)
@@ -121,8 +121,8 @@ getflagbyname(const char *name)
 		return NoBorder;
 	else if (strcmp(name, "FlagPlaceholder0x400000000") == 0)
 		return FlagPlaceholder0x400000000;
-	else if (strcmp(name, "FlagPlaceholder0x800000000") == 0)
-		return FlagPlaceholder0x800000000;
+	else if (strcmp(name, "SemiScratchpad") == 0)
+		return SemiScratchpad;
 	else if (strcmp(name, "RespectSizeHints") == 0)
 		return RespectSizeHints;
 	else if (strcmp(name, "RioDrawNoMatchPID") == 0)
@@ -139,8 +139,8 @@ getflagbyname(const char *name)
 		return Lower;
 	else if (strcmp(name, "Raise") == 0)
 		return Raise;
-	else if (strcmp(name, "FlagPlaceholder0x100000000000") == 0)
-		return FlagPlaceholder0x100000000000;
+	else if (strcmp(name, "SkipTaskbar") == 0)
+		return SkipTaskbar;
 	else if (strcmp(name, "FlagPlaceholder0x200000000000") == 0)
 		return FlagPlaceholder0x200000000000;
 	else if (strcmp(name, "FlagPlaceholder0x400000000000") == 0)
@@ -180,5 +180,7 @@ getflagbyname(const char *name)
 	else if (strcmp(name, "Unmanaged") == 0)
 		return Unmanaged;
 
+	if (enabled(Debug))
+		fprintf(stderr, "getflagbyname for name '%s' not found\n", name);
 	return 0;
 }

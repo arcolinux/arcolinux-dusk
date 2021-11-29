@@ -17,6 +17,7 @@
 #include "bar_wintitleactions.c"
 #include "bar_workspaces.c"
 #include "bar_wspreview.c"
+#include "bar_powerline.c"
 
 /* Other patches */
 #include "attachx.c"
@@ -46,6 +47,7 @@
 #include "mark.c"
 #include "nomodbuttons.c"
 #include "push.c"
+#include "semi_scratchpads.c"
 #include "renamed_scratchpads.c"
 #include "restartsig.c"
 #include "riodraw.c"
