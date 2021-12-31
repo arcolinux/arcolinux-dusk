@@ -13,13 +13,14 @@
 #include "bar_wintitle_floating.c"
 #include "bar_wintitle_hidden.c"
 #include "bar_wintitle_sticky.c"
+#include "bar_wintitle_single.c"
 #include "bar_systray.c"
 #include "bar_wintitleactions.c"
 #include "bar_workspaces.c"
 #include "bar_wspreview.c"
 #include "bar_powerline.c"
 
-/* Other patches */
+/* Other functionality */
 #include "attachx.c"
 #include "cfacts.c"
 #include "clientopacity.c"
@@ -29,6 +30,7 @@
 #include "dragcfact.c"
 #include "dragmfact.c"
 #include "ewmh.c"
+#include "group.c"
 #include "fakefullscreenclient.c"
 #include "floatpos.c"
 #include "focusdir.c"
@@ -45,6 +47,9 @@
 #endif
 #include "killunsel.c"
 #include "mark.c"
+#include "movemouse.c"
+#include "resizemouse.c"
+#include "placemouse.c"
 #include "nomodbuttons.c"
 #include "push.c"
 #include "semi_scratchpads.c"

@@ -14,13 +14,14 @@
 #include "bar_wintitle_floating.h"
 #include "bar_wintitle_hidden.h"
 #include "bar_wintitle_sticky.h"
+#include "bar_wintitle_single.h"
 #include "bar_systray.h"
 #include "bar_wintitleactions.h"
 #include "bar_workspaces.h"
 #include "bar_wspreview.h"
 #include "bar_powerline.h"
 
-/* Other patches */
+/* Other functionality */
 #include "attachx.h"
 #include "cfacts.h"
 #include "clientopacity.h"
@@ -30,6 +31,7 @@
 #include "dragcfact.h"
 #include "dragmfact.h"
 #include "ewmh.h"
+#include "group.h"
 #include "fakefullscreenclient.h"
 #include "floatpos.h"
 #include "focusdir.h"
@@ -41,6 +43,9 @@
 #include "ipc/ipc.h"
 #include "ipc/util.h"
 #include "killunsel.h"
+#include "movemouse.h"
+#include "resizemouse.h"
+#include "placemouse.h"
 #include "mark.h"
 #include "nomodbuttons.h"
 #include "push.h"

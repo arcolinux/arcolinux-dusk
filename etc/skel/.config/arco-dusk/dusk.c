@@ -223,6 +223,7 @@ enum {
 	DuskClientFlags1,
 	DuskClientFlags2,
 	DuskClientFields,
+	DuskClientLabel,
 	SteamGameID,
 	ClientLast
 }; /* dusk client atoms */
@@ -283,6 +284,7 @@ struct Client {
 	int oldx, oldy, oldw, oldh;
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh;
 	int bw, oldbw;
+	int group;
 	int scheme;
 	char scratchkey;
 	unsigned int idx;
@@ -349,11 +351,13 @@ typedef struct {
 	const char *instance;
 	const char *title;
 	const char *wintype;
-	double opacity;
-	unsigned long flags;
+	const int transient;
+	const double opacity;
+	const unsigned long flags;
 	const char *floatpos;
 	const char scratchkey;
 	const char *workspace;
+	const char *label;
 	int resume;
 } Rule;
 
@@ -452,11 +456,8 @@ static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void motionnotify(XEvent *e);
-static void movemouse(const Arg *arg);
-static void moveorplace(const Arg *arg);
 static Client *nexttiled(Client *c);
 static Client *nthtiled(Client *c, int n);
-static void placemouse(const Arg *arg);
 static Client *prevtiled(Client *c);
 static void propertynotify(XEvent *e);
 static void restart(const Arg *arg);
@@ -468,8 +469,6 @@ static Client *recttoclient(int x, int y, int w, int h, int include_floating);
 static void resize(Client *c, int x, int y, int w, int h, int interact);
 static void resizeclient(Client *c, int x, int y, int w, int h);
 static void resizeclientpad(Client *c, int x, int y, int w, int h, int xpad, int ypad);
-static void resizemouse(const Arg *arg);
-static void resizeorcfacts(const Arg *arg);
 static void restack(Workspace *ws);
 static void run(void);
 static void scan(void);
@@ -519,6 +518,7 @@ static int force_warp = 0;     /* force warp in some situations, e.g. killclient
 static int ignore_warp = 0;    /* force skip warp in some situations, e.g. dragmfact, dragcfact */
 static int num_workspaces = 0; /* the number of available workspaces */
 static int combo = 0;          /* used for combo keys */
+static int grp_idx = 0;        /* used for grouping windows together */
 static int arrange_focus_on_monocle = 1; /* used in focus to arrange monocle layouts on focus */
 
 static int (*xerrorxlib)(Display *, XErrorEvent *);
@@ -564,7 +564,7 @@ applyrules(Client *c)
 	const char *class, *instance;
 	Atom wintype, game_id;
 	char role[64] = {0};
-	unsigned int i;
+	unsigned int i, transient;
 	const Rule *r;
 	Workspace *ws = NULL;
 	XClassHint ch = { NULL, NULL };
@@ -576,6 +576,7 @@ applyrules(Client *c)
 	wintype  = getatomprop(c, netatom[NetWMWindowType], XA_ATOM);
 	gettextprop(c->win, wmatom[WMWindowRole], role, sizeof(role));
 	game_id = getatomprop(c, clientatom[SteamGameID], AnyPropertyType);
+	transient = ISTRANSIENT(c) ? 1 : 0;
 
 	/* Steam games may come through with custom class, instance and name making it hard to create
 	 * generic rules for them. Overriding the class with "steam_app_" to make this easier. */
@@ -591,7 +592,8 @@ applyrules(Client *c)
 		&& (!r->class || strstr(class, r->class))
 		&& (!r->role || strstr(role, r->role))
 		&& (!r->instance || strstr(instance, r->instance))
-		&& (!r->wintype || wintype == XInternAtom(dpy, r->wintype, False)))
+		&& (!r->wintype || wintype == XInternAtom(dpy, r->wintype, False))
+		&& (r->transient == transient))
 		{
 			c->flags |= Ruled | r->flags;
 			c->scratchkey = r->scratchkey;
@@ -608,9 +610,13 @@ applyrules(Client *c)
 
 			if (REVERTWORKSPACE(c) && !c->ws->visible)
 				c->revertws = c->ws->mon->selws;
+			if (r->label)
+				strcpy(c->label, r->label);
+			else
+				saveclientclass(c);
 
 			if (enabled(Debug))
-				fprintf(stderr, "applyrules: client rule %d matched:\n    class: %s\n    role: %s\n    instance: %s\n    title: %s\n    wintype: %s\n    flags: %ld\n    floatpos: %s\n    workspace: %s\n",
+				fprintf(stderr, "applyrules: client rule %d matched:\n    class: %s\n    role: %s\n    instance: %s\n    title: %s\n    wintype: %s\n    flags: %ld\n    floatpos: %s\n    workspace: %s\n    label: %s\n",
 					i,
 					r->class ? r->class : "NULL",
 					r->role ? r->role : "NULL",
@@ -619,10 +625,17 @@ applyrules(Client *c)
 					r->wintype ? r->wintype : "NULL",
 					r->flags,
 					r->floatpos ? r->floatpos : "NULL",
-					r->workspace);
+					r->workspace,
+					r->label ? r->label : "NULL");
 			if (!r->resume)
 				break; // only allow one rule match
 		}
+	}
+
+	if (!RULED(c)) {
+		if (transient)
+			addflag(c, Centered);
+		saveclientclass(c);
 	}
 
 	if (ch.res_class)
@@ -858,7 +871,7 @@ cleanupmon(Monitor *mon)
 		for (m = mons; m && m->next != mon; m = m->next);
 		m->next = mon->next;
 	}
-	for (ws = workspaces; ws; ws = ws->next)
+	for (ws = workspaces; ws; ws = ws->next) {
 		if (ws->mon == mon) {
 			adjustwsformonitor(ws, mons);
 			ws->mon = mons;
@@ -866,6 +879,7 @@ cleanupmon(Monitor *mon)
 			ws->pinned = 0;
 			hidewsclients(ws->stack);
 		}
+	}
 	for (bar = mon->bar; bar; bar = mon->bar) {
 		if (!bar->external) {
 			XUnmapWindow(dpy, bar->win);
@@ -1125,7 +1139,7 @@ clientfsrestore(Client *c)
 		resizeclient(c, c->ws->mon->mx, c->ws->mon->my, c->ws->mon->mw, c->ws->mon->mh);
 		XRaiseWindow(dpy, c->win);
 	} else if (c && ISFLOATING(c))
-		resizeclient(c, c->x, c->y, c->w, c->h);
+		resizeclient(c, c->sfx, c->sfy, c->sfw, c->sfh);
 }
 
 void
@@ -1241,16 +1255,34 @@ configurenotify(XEvent *e)
 		stickyws->wh = sh = ev->height;
 
 		if (updategeom() || dirty) {
+			for (ws = workspaces; ws; ws = ws->next) {
+				for (c = ws->clients; c; c = c->next) {
+					c->sfx = (c->sfx != -9999 ? c->sfx : c->x) - c->ws->wx;
+					c->sfy = (c->sfx != -9999 ? c->sfy : c->y) - c->ws->wy;
+				}
+			}
 			drw_resize(drw, sw, sh);
 			updatebars();
+			setworkspaceareas();
 			setviewport();
-			for (ws = workspaces; ws; ws = ws->next)
-				for (c = ws->clients; c; c = c->next)
-					if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c))
-						resizeclient(c, ws->mon->mx, ws->mon->my, ws->mon->mw, ws->mon->mh);
 			for (m = mons; m; m = m->next)
 				for (bar = m->bar; bar; bar = bar->next)
 					XMoveResizeWindow(dpy, bar->win, bar->bx, bar->by, bar->bw, bar->bh);
+			for (ws = workspaces; ws; ws = ws->next) {
+				for (c = ws->clients; c; c = c->next) {
+					c->sfx += c->ws->wx;
+					c->sfy += c->ws->wy;
+					if (!ISVISIBLE(c))
+						continue;
+					if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c))
+						resizeclient(c, ws->mon->mx, ws->mon->my, ws->mon->mw, ws->mon->mh);
+					else if (ISFLOATING(c)) {
+						c->x = c->sfx;
+						c->y = c->sfy;
+						show(c);
+					}
+				}
+			}
 			focus(NULL);
 			arrange(NULL);
 		}
@@ -1492,7 +1524,7 @@ expose(XEvent *e)
 void
 focus(Client *c)
 {
-	if (c && !c->ws->visible)
+	if ((c && !c->ws->visible) || !selws)
 		return;
 
 	Workspace *ws = c ? c->ws : selws;
@@ -1915,7 +1947,7 @@ manage(Window w, XWindowAttributes *wa)
 	getclientflags(c);
 	getclientfields(c);
 	getclientopacity(c);
-	saveclientclass(c);
+	getclientlabel(c);
 
 	if (ISSTICKY(c))
 		c->ws = recttows(c->x + c->w / 2, c->y + c->h / 2, 1, 1);
@@ -1923,7 +1955,6 @@ manage(Window w, XWindowAttributes *wa)
 	if (!c->ws) {
 		if (XGetTransientForHint(dpy, w, &trans) && (t = wintoclient(trans))) {
 			addflag(c, Transient);
-			addflag(c, Centered);
 			c->ws = t->ws;
 		} else
 			c->ws = selws;
@@ -1932,11 +1963,10 @@ manage(Window w, XWindowAttributes *wa)
 	restorewindowfloatposition(c, c->ws->mon);
 
 	if (!RULED(c)) {
+		applyrules(c);
+
 		if (c->x == c->ws->mon->wx && c->y == c->ws->mon->wy)
 			addflag(c, Centered);
-
-		if (!ISTRANSIENT(c))
-			applyrules(c);
 	}
 
 	if (DISALLOWED(c)) {
@@ -2193,224 +2223,6 @@ motionnotify(XEvent *e)
 		entermon(m, NULL);
 		focus(NULL);
 	}
-}
-
-void
-moveorplace(const Arg *arg)
-{
-	if (!selws || !selws->sel)
-		return;
-
-	if (!selws->layout->arrange || ISFLOATING(selws->sel))
-		movemouse(arg);
-	else
-		placemouse(arg);
-}
-
-void
-movemouse(const Arg *arg)
-{
-	int x, y, ocx, ocy, nx, ny;
-	Client *c;
-	Workspace *w, *ws = selws;
-	XEvent ev;
-	Time lasttime = 0;
-	double prevopacity;
-
-	if (!(c = ws->sel))
-		return;
-	if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c)) /* no support moving fullscreen windows by mouse */
-		return;
-	if (moveopacity) {
-		prevopacity = c->opacity;
-		opacity(c, moveopacity);
-	}
-	restack(ws);
-	ocx = c->x;
-	ocy = c->y;
-	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
-		None, cursor[CurMove]->cursor, CurrentTime) != GrabSuccess)
-		return;
-	if (!getrootptr(&x, &y))
-		return;
-	addflag(c, MoveResize);
-	do {
-		XMaskEvent(dpy, MOUSEMASK|ExposureMask|SubstructureRedirectMask, &ev);
-		switch (ev.type) {
-		case ConfigureRequest:
-		case Expose:
-		case MapRequest:
-			handler[ev.type](&ev);
-			break;
-		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / 60))
-				continue;
-			lasttime = ev.xmotion.time;
-
-			nx = ocx + (ev.xmotion.x - x);
-			ny = ocy + (ev.xmotion.y - y);
-			if (abs(selmon->wx - nx) < snap)
-				nx = selmon->wx;
-			else if (abs((selmon->wx + selmon->ww) - (nx + WIDTH(c))) < snap)
-				nx = selmon->wx + selmon->ww - WIDTH(c);
-			if (abs(selmon->wy - ny) < snap)
-				ny = selmon->wy;
-			else if (abs((selmon->wy + selmon->wh) - (ny + HEIGHT(c))) < snap)
-				ny = selmon->wy + selmon->wh - HEIGHT(c);
-			if (!ISFLOATING(c) && ws->layout->arrange
-					&& (abs(nx - c->x) > snap || abs(ny - c->y) > snap))
-				togglefloating(NULL);
-			if (!ws->layout->arrange || ISFLOATING(c)) {
-				resize(c, nx, ny, c->w, c->h, 1);
-				savefloats(c);
-			}
-			break;
-		}
-	} while (ev.type != ButtonRelease);
-	XUngrabPointer(dpy, CurrentTime);
-
-	w = recttows(c->x, c->y, c->w, c->h);
-	if (w && ISSTICKY(c)) {
-		stickyws->mon = w->mon;
-		drawbars();
-	} else if (w && w != selws) {
-		detach(c);
-		detachstack(c);
-		attachx(c, AttachBottom, w);
-		attachstack(c);
-		selws = w;
-		selmon = w->mon;
-		focus(c);
-	}
-
-	removeflag(c, MoveResize);
-	if (moveopacity)
-		opacity(c, prevopacity);
-}
-
-void
-placemouse(const Arg *arg)
-{
-	int x, y, px, py, ocx, ocy, nx = -9999, ny = -9999, freemove = 0;
-	Client *c, *r = NULL, *prevr;
-	Workspace *w, *ws = selws;
-	XEvent ev;
-	XWindowAttributes wa;
-	double prevopacity;
-	Time lasttime = 0;
-	unsigned long attachmode, prevattachmode;
-	attachmode = prevattachmode = AttachMaster;
-
-	if (!(c = ws->sel) || !ws->layout->arrange) /* no support for placemouse when floating layout is used */
-		return;
-	if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c)) /* no support placing fullscreen windows by mouse */
-		return;
-	if (ISSTICKY(c))
-		return;
-	restack(ws);
-	prevr = c;
-	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
-		None, cursor[CurMove]->cursor, CurrentTime) != GrabSuccess)
-		return;
-
-	addflag(c, MovePlace);
-	removeflag(c, Floating);
-	if (placeopacity) {
-		prevopacity = c->opacity;
-		opacity(c, placeopacity);
-	}
-
-	XGetWindowAttributes(dpy, c->win, &wa);
-	ocx = wa.x;
-	ocy = wa.y;
-
-	if (arg->i == 2) // warp cursor to client center
-		XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, WIDTH(c) / 2, HEIGHT(c) / 2);
-
-	if (!getrootptr(&x, &y))
-		return;
-
-	do {
-		XMaskEvent(dpy, MOUSEMASK|ExposureMask|SubstructureRedirectMask, &ev);
-		switch (ev.type) {
-		case ConfigureRequest:
-		case Expose:
-		case MapRequest:
-			handler[ev.type](&ev);
-			break;
-		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / 60))
-				continue;
-			lasttime = ev.xmotion.time;
-
-			nx = ocx + (ev.xmotion.x - x);
-			ny = ocy + (ev.xmotion.y - y);
-
-			if (!freemove && (abs(nx - ocx) > snap || abs(ny - ocy) > snap))
-				freemove = 1;
-
-			if (freemove)
-				XMoveWindow(dpy, c->win, nx, ny);
-
-			if ((w = recttows(ev.xmotion.x, ev.xmotion.y, 1, 1)) && w != selws) {
-				selws = w;
-				selmon = w->mon;
-			}
-
-			if (arg->i == 1) { // tiled position is relative to the client window center point
-				px = nx + wa.width / 2;
-				py = ny + wa.height / 2;
-			} else { // tiled position is relative to the mouse cursor
-				px = ev.xmotion.x;
-				py = ev.xmotion.y;
-			}
-
-			r = recttoclient(px, py, 1, 1, 0);
-
-			if (!r || r == c)
-				break;
-
-			if ((((float)(r->y + r->h - py) / r->h) > ((float)(r->x + r->w - px) / r->w)
-			    	&& (abs(r->y - py) < r->h / 2)) || (abs(r->x - px) < r->w / 2))
-				attachmode = AttachAbove;
-			else
-				attachmode = AttachBelow;
-
-			if ((r && r != prevr) || (attachmode != prevattachmode)) {
-				detachstack(c);
-				detach(c);
-				if (c->ws != r->ws)
-					arrangews(c->ws);
-
-				r->ws->sel = r;
-				attachx(c, attachmode, r->ws);
-				attachstack(c);
-				arrangews(r->ws);
-				prevr = r;
-				prevattachmode = attachmode;
-			}
-			break;
-		}
-	} while (ev.type != ButtonRelease);
-	XUngrabPointer(dpy, CurrentTime);
-
-	if ((w = recttows(ev.xmotion.x, ev.xmotion.y, 1, 1)) && w != c->ws) {
-		detach(c);
-		detachstack(c);
-		arrangews(c->ws);
-		attachx(c, AttachBottom, w);
-		attachstack(c);
-		selws = w;
-		selmon = w->mon;
-	}
-
-	focus(c);
-	removeflag(c, MovePlace);
-	if (nx != -9999)
-		resize(c, nx, ny, c->w, c->h, 0);
-	arrangews(c->ws);
-	if (placeopacity)
-		opacity(c, prevopacity);
 }
 
 Client *
@@ -2671,104 +2483,6 @@ resizeclientpad(Client *c, int x, int y, int w, int h, int tw, int th)
 	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
 	configure(c);
 	XSync(dpy, False);
-}
-
-void
-resizemouse(const Arg *arg)
-{
-	int ocx, ocy, nw, nh;
-	int opx, opy, och, ocw, nx, ny;
-	int horizcorner, vertcorner;
-	unsigned int dui;
-	Window dummy;
-	Client *c;
-	XEvent ev;
-	Workspace *w, *ws = selws;
-	Time lasttime = 0;
-	double prevopacity;
-
-	if (!(c = ws->sel))
-		return;
-	if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c)) /* no support resizing fullscreen windows by mouse */
-		return;
-
-	if (resizeopacity) {
-		prevopacity = c->opacity;
-		opacity(c, resizeopacity);
-	}
-	restack(selws);
-	ocx = c->x;
-	ocy = c->y;
-	och = c->h;
-	ocw = c->w;
-	if (!XQueryPointer(dpy, c->win, &dummy, &dummy, &opx, &opy, &nx, &ny, &dui))
-		return;
-	horizcorner = nx < c->w / 2;
-	vertcorner  = ny < c->h / 2;
-	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
-		None, cursor[horizcorner | (vertcorner << 1)]->cursor, CurrentTime) != GrabSuccess)
-		return;
-	addflag(c, MoveResize);
-	do {
-		XMaskEvent(dpy, MOUSEMASK|ExposureMask|SubstructureRedirectMask, &ev);
-		switch (ev.type) {
-		case ConfigureRequest:
-		case Expose:
-		case MapRequest:
-			handler[ev.type](&ev);
-			break;
-		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / 60))
-				continue;
-			lasttime = ev.xmotion.time;
-
-			nx = horizcorner ? (ocx + ev.xmotion.x - opx) : c->x;
-			ny = vertcorner ? (ocy + ev.xmotion.y - opy) : c->y;
-			nw = MAX(horizcorner ? (ocx + ocw - nx) : (ocw + (ev.xmotion.x - opx)), 1);
-			nh = MAX(vertcorner ? (ocy + och - ny) : (och + (ev.xmotion.y - opy)), 1);
-
-			if (c->ws->mon->wx + nw >= selmon->wx && c->ws->mon->wx + nw <= selmon->wx + selmon->ww
-			&& c->ws->mon->wy + nh >= selmon->wy && c->ws->mon->wy + nh <= selmon->wy + selmon->wh)
-			{
-				if (!ISFLOATING(c) && ws->layout->arrange
-				&& (abs(nw - c->w) > snap || abs(nh - c->h) > snap))
-					togglefloating(NULL);
-			}
-			if (!ws->layout->arrange || ISFLOATING(c)) {
-				resize(c, nx, ny, nw, nh, 1);
-				savefloats(c);
-			}
-			break;
-		}
-	} while (ev.type != ButtonRelease);
-
-	XUngrabPointer(dpy, CurrentTime);
-	skipfocusevents();
-
-	if (!ISSTICKY(c) && (w = recttows(c->x, c->y, c->w, c->h)) && w != selws) {
-		detach(c);
-		detachstack(c);
-		attachx(c, AttachBottom, w);
-		attachstack(c);
-		selws = w;
-		selmon = w->mon;
-		focus(c);
-	}
-	removeflag(c, MoveResize);
-	if (resizeopacity)
-		opacity(c, prevopacity);
-}
-
-void
-resizeorcfacts(const Arg *arg)
-{
-	if (!selws || !selws->sel)
-		return;
-
-	if (!selws->layout->arrange || ISFLOATING(selws->sel))
-		resizemouse(arg);
-	else
-		dragcfact(arg);
 }
 
 void
@@ -3097,6 +2811,8 @@ setup(void)
 	/* One off calculating workspace label widths, used by WorkspaceLabels functionality */
 	occupied_workspace_label_format_length = TEXT2DW(occupied_workspace_label_format) - TEXTW(workspace_label_placeholder) * 2;
 	vacant_workspace_label_format_length = TEXT2DW(vacant_workspace_label_format) - TEXTW(workspace_label_placeholder);
+	textw_single_char = TEXTW("A");
+
 
 	updategeom();
 	createworkspaces();
@@ -3114,6 +2830,7 @@ setup(void)
 	clientatom[DuskClientFlags1] = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS1", False);
 	clientatom[DuskClientFlags2] = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS2", False);
 	clientatom[DuskClientFields] = XInternAtom(dpy, "_DUSK_CLIENT_FIELDS", False);
+	clientatom[DuskClientLabel] = XInternAtom(dpy, "_DUSK_CLIENT_LABEL", False);
 	clientatom[SteamGameID] = XInternAtom(dpy, "STEAM_GAME", False);
 	netatom[NetActiveWindow] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
 	netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
@@ -3602,9 +3319,10 @@ updategeom(void)
 					m->mw = m->ww = unique[m->num].width;
 					m->mh = m->wh = unique[m->num].height;
 					updatebarpos(m);
-					setworkspaceareasformon(mons);
 					createpreview(m);
 				}
+				if (m->num >= n)
+					redistributeworkspaces(m);
 			}
 		} else { /* less monitors available nn < n */
 			for (i = nn; i < n; i++) {
@@ -3625,7 +3343,6 @@ updategeom(void)
 			mons->mw = mons->ww = sw;
 			mons->mh = mons->wh = sh;
 			updatebarpos(mons);
-			setworkspaceareasformon(mons);
 			createpreview(mons);
 		}
 	}

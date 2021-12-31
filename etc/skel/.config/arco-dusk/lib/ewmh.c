@@ -50,11 +50,13 @@ persistworkspacestate(Workspace *ws)
 		c->idx = i;
 		setclientflags(c);
 		setclientfields(c);
+		setclientlabel(c);
 		savewindowfloatposition(c, c->ws->mon);
 		if (c->swallowing) {
 			c->swallowing->idx = i;
 			setclientflags(c->swallowing);
 			setclientfields(c->swallowing);
+			setclientlabel(c->swallowing);
 			savewindowfloatposition(c->swallowing, c->swallowing->ws->mon);
 		}
 	}
@@ -70,7 +72,7 @@ savewindowfloatposition(Client *c, Monitor *m)
 		return;
 
 	sprintf(atom, "_DUSK_FLOATPOS_%u", m->num);
-	unsigned long pos[] = { (MAX(c->sfx, 0) & 0xffff) | ((MAX(c->sfy, 0) & 0xffff) << 16) };
+	unsigned long pos[] = { (MAX(c->sfx - m->mx, 0) & 0xffff) | ((MAX(c->sfy - m->my, 0) & 0xffff) << 16) };
 	XChangeProperty(dpy, c->win, XInternAtom(dpy, atom, False), XA_CARDINAL, 32, PropModeReplace, (unsigned char *)pos, 1);
 
 	sprintf(atom, "_DUSK_FLOATSIZE_%u", m->num);
@@ -118,8 +120,8 @@ restorewindowfloatposition(Client *c, Monitor *m)
 		return 0;
 	}
 
-	c->sfx = x;
-	c->sfy = y;
+	c->sfx = m->mx + x;
+	c->sfy = m->my + y;
 	c->sfw = w;
 	c->sfh = h;
 
@@ -165,6 +167,12 @@ setclientfields(Client *c)
 }
 
 void
+setclientlabel(Client *c)
+{
+	XChangeProperty(dpy, c->win, clientatom[DuskClientLabel], XA_STRING, 8, PropModeReplace, (unsigned char *)c->label, strlen(c->label));
+}
+
+void
 getclientflags(Client *c)
 {
 	unsigned long flags1 = getatomprop(c, clientatom[DuskClientFlags1], AnyPropertyType) & 0xFFFFFFFF;
@@ -190,6 +198,28 @@ getclientfields(Client *c)
 				c->ws = ws;
 				break;
 			}
+	}
+}
+
+void
+getclientlabel(Client *c)
+{
+	Atom type;
+	int format;
+	unsigned int i;
+	unsigned long after;
+	unsigned char *data = 0;
+	long unsigned int size = LENGTH(c->label);
+
+	if (XGetWindowProperty(dpy, c->win, clientatom[DuskClientLabel], 0, 1024, 0, XA_STRING,
+				&type, &format, &size, &after, &data) == Success) {
+		if (data) {
+			if (type == XA_STRING) {
+				for (i = 0; i < size; ++i)
+					c->label[i] = data[i];
+			}
+			XFree(data);
+		}
 	}
 }
 
@@ -267,7 +297,7 @@ setviewport(void)
 void
 updatecurrentdesktop(void)
 {
-	long data[] = { selws->num };
+	long data[] = { selws ? selws->num : 0 };
 	XChangeProperty(dpy, root, netatom[NetCurrentDesktop], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 1);
 }
 

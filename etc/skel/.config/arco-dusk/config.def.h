@@ -7,6 +7,7 @@ static const unsigned int gappih         = 5;   /* horiz inner gap between windo
 static const unsigned int gappiv         = 5;   /* vert inner gap between windows */
 static const unsigned int gappoh         = 5;   /* horiz outer gap between windows and screen edge */
 static const unsigned int gappov         = 5;   /* vert outer gap between windows and screen edge */
+static const unsigned int gappfl         = 5;   /* gap between floating windows (when relevant) */
 static const unsigned int smartgaps_fact = 0;   /* smartgaps factor when there is only one client; 0 = no gaps, 3 = 3x outer gaps */
 
 static unsigned int attachdefault        = AttachAside; // AttachMaster, AttachAbove, AttachAside, AttachBelow, AttachBottom
@@ -83,6 +84,7 @@ static unsigned long functionality = 0
 	|AllowNoModifierButtons // allow some window operations, like move and resize, to work without having to hold down a modifier key
 	|CenterSizeHintsClients // center tiled clients subject to size hints within their tiled area
 //	|ResizeHints // respect size hints also when windows are tiled
+	|SnapToWindows // snap to windows when moving floating clients
 //	|SortScreens // monitors are numbered from left to right
 //	|ViewOnWs // follow a window to the workspace it is being moved to
 	|Xresources // add support for changing colours via Xresources
@@ -736,6 +738,9 @@ static Key keys[] = {
 	{ KeyPress,   MODKEY,                       XK_q,            killclient,             {0} }, // close the currently focused window
 /*	{ KeyPress,   MODKEY|Shift,                 XK_q,            restart,                {0} }, // restart dusk */
 	{ KeyPress,   MODKEY|Ctrl|Alt,              XK_q,            quit,                   {0} }, // exit dusk
+
+	{ KeyPress,   MODKEY,                       XK_v,            group,                  {0} }, // groups floating clients together
+	{ KeyPress,   MODKEY|Shift,                 XK_v,            ungroup,                {0} }, // ungroups floating clients
 
 	{ KeyPress,   MODKEY,                       XK_a,            markall,                {0} }, // marks all clients on the selected workspace
 	{ KeyPress,   MODKEY|Ctrl,                  XK_a,            markall,                {1} }, // marks all floating clients on the selected workspace
