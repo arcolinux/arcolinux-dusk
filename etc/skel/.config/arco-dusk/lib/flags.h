@@ -66,7 +66,7 @@ static const unsigned long
 	FlagPlaceholder0x20000000000000 = 0x20000000000000,
 	FlagPlaceholder0x40000000000000 = 0x40000000000000,
 	FlagPlaceholder0x80000000000000 = 0x80000000000000,
-	FlagPlaceholder0x100000000000000 = 0x100000000000000,
+	/* Debug = 0x100000000000000,  // same name and value as debug functionality, see util.h */
 	/* Below are flags that are intended to only be used internally */
 	Invisible = 0x200000000000000, // by default all clients are visible, used by scratchpads to hide clients
 	/* Some clients (e.g. alacritty) helpfully send configure requests with a new size or position
@@ -81,10 +81,11 @@ static const unsigned long
 	Unmanaged = 0x8000000000000000; // indicates that the client is not to be managed by the window manager
 
 #define ALWAYSONTOP(C) (C && C->flags & AlwaysOnTop)
+#define DEBUGGING(C) (C && C->flags & Debug)
 #define DISALLOWED(C) (C && C->flags & Disallowed)
 #define HIDDEN(C) (C && ((C->flags & Hidden) || (getstate(C->win) == IconicState)))
-#define ISFLOATING(C) (C && C->flags & (Floating|Sticky))
 #define ISFIXED(C) (C && C->flags & Fixed)
+#define ISFLOATING(C) (C && C->flags & (Floating|Sticky))
 #define ISLOCKED(C) (C && C->flags & Locked)
 #define ISSTICKY(C) (C && C->flags & Sticky)
 #define ISCENTERED(C) (C && C->flags & Centered)
@@ -95,6 +96,7 @@ static const unsigned long
 #define ISTRANSIENT(C) (C && C->flags & Transient)
 #define ISURGENT(C) (C && C->flags & Urgent)
 #define ISMARKED(C) (C && C->flags & Marked)
+#define ISSCRATCHPAD(C) (C && C->scratchkey != 0)
 #define ISUNMANAGED(C) (C && C->flags & Unmanaged)
 #define ISVISIBLE(C) (C && C->ws->visible && C->win && !(C->flags & (Invisible|Hidden)))
 #define ISINVISIBLE(C) (C && (!C->win || C->flags & Invisible))

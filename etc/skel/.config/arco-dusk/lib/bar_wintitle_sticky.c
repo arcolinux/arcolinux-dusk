@@ -30,7 +30,7 @@ calc_wintitle_sticky(
 ) {
 	Client *c;
 	int clientsnsticky = 0;
-	int groupactive = GRP_FLOAT;
+	int drawpowerline = a->value;
 	firstpwlwintitle = 1;
 
 	for (c = ws->clients; c; c = c->next) {
@@ -44,19 +44,19 @@ calc_wintitle_sticky(
 
 	/* This avoids drawing a separator on the left hand side of the wintitle section if
 	 * there is a border and the wintitle module rests at the left border. */
-	if (a->x > bar->borderpx) {
+	if (!drawpowerline && a->x > bar->borderpx) {
 		offx += flexwintitle_separator;
 		tabw -= flexwintitle_separator;
 	}
 
 	/* This avoids drawing a separator on the right hand side of the wintitle section if
 	 * there is a border and the wintitle module rests at the right border. */
-	if (a->x + a->w < bar->bw - bar->borderpx)
+	if (!drawpowerline && a->x + a->w < bar->bw - bar->borderpx)
 		tabw -= flexwintitle_separator;
 
 	XSetForeground(drw->dpy, drw->gc, scheme[bar->scheme][ColBorder].pixel);
 	XFillRectangle(drw->dpy, drw->drawable, drw->gc, a->x, a->y, a->w, a->h);
 
-	flextitledrawarea(ws, ws->clients, offx, tabw, clientsnsticky, SCHEMEFOR(GRP_FLOAT), 0, 1, 1, passx, tabfn, arg, a);
+	flextitledrawarea(ws, ws->clients, offx, tabw, clientsnsticky, 0, 0, 1, 1, passx, tabfn, arg, a);
 	return 1;
 }

@@ -32,6 +32,7 @@ draw_systray(Bar *bar, BarArg *a)
 
 	drw_setscheme(drw, scheme[a->scheme]);
 	drw_rect(drw, a->x, a->y, a->w, a->h, 1, 1);
+	wa.background_pixel = enabled(SystrayNoAlpha) ? scheme[a->scheme][ColBg].pixel : 0;
 
 	if (!systray) {
 		/* init systray */
@@ -43,13 +44,11 @@ draw_systray(Bar *bar, BarArg *a)
 		wa.border_pixel = 0;
 		systray->h = MIN(a->h, drw->fonts->h);
 		if (!enabled(SystrayNoAlpha)) {
-			wa.background_pixel = 0;
 			wa.colormap = cmap;
 			systray->win = XCreateWindow(dpy, root, bar->bx + a->x, bar->by + a->y + (a->h - systray->h) / 2, MAX(a->w + a->lpad + a->rpad + 40, 1), systray->h, 0, depth,
 							InputOutput, visual,
 							CWOverrideRedirect|CWBorderPixel|CWBackPixel|CWColormap|CWEventMask, &wa);
 		} else {
-			wa.background_pixel = scheme[a->scheme][ColBg].pixel;
 			systray->win = XCreateSimpleWindow(dpy, root, bar->bx + a->x + a->lpad, bar->by + a->y + (a->h - systray->h) / 2, MIN(a->w + a->lpad + a->rpad + 40, 1), systray->h, 0, 0, scheme[a->scheme][ColBg].pixel);
 			XChangeWindowAttributes(dpy, systray->win, CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWEventMask, &wa);
 		}
@@ -81,10 +80,13 @@ draw_systray(Bar *bar, BarArg *a)
 	wc.stack_mode = Above;
 	wc.sibling = bar->win;
 	XConfigureWindow(dpy, systray->win, CWSibling|CWStackMode, &wc);
+	if (enabled(SystrayNoAlpha)) {
+		XSetWindowBackground(dpy, systray->win, scheme[a->scheme][ColBg].pixel);
+		XClearWindow(dpy, systray->win);
+	}
 
 	drw_setscheme(drw, scheme[a->scheme]);
 	for (w = 0, i = systray->icons; i; i = i->next) {
-		wa.background_pixel = enabled(SystrayNoAlpha) ? scheme[a->scheme][ColBg].pixel : 0;
 		XChangeWindowAttributes(dpy, i->win, CWBackPixel, &wa);
 		XMapRaised(dpy, i->win);
 		i->x = w;
@@ -168,7 +170,7 @@ updatesystrayiconstate(Client *i, XPropertyEvent *ev)
 	long flags;
 	int code = 0;
 
-	if (enabled(Debug))
+	if (enabled(Debug) || DEBUGGING(i))
 		fprintf(stderr, "updatesystrayiconstate: ev->atom = %ld (%s), xatom[XembedInfo] = %ld\n", ev->atom, XGetAtomName(dpy, ev->atom), xatom[XembedInfo]);
 
 	if (disabled(Systray) || !systray || !i || ev->atom != xatom[XembedInfo] ||

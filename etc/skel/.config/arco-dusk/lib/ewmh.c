@@ -1,11 +1,22 @@
+int
+atomin(Atom input, Atom *list, int nitems)
+{
+	for (int i = 0; list && i < nitems; i++)
+		if (input == list[i])
+			return 1;
+	return 0;
+}
+
 void
 persistworkspacestate(Workspace *ws)
 {
 	Client *c;
 	unsigned int i;
-	char atom[22] = {0};
 
-	sprintf(atom, "_DUSK_WORKSPACE_%u", ws->num);
+	/* Fill flextile attributes if arrange method is NULL (floating layout) */
+	if (!ws->layout->arrange)
+		for (i = 0; i < LTAXIS_LAST; i++)
+			ws->ltaxis[i] = 0xF;
 
 	/* Perists workspace information in 32 bits laid out like this:
 	 *
@@ -36,7 +47,8 @@ persistworkspacestate(Workspace *ws)
 		(ws->enablegaps & 0x1) << 28
 	};
 
-	XChangeProperty(dpy, root, XInternAtom(dpy, atom, False), XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 1);
+	XChangeProperty(dpy, root, clientatom[DuskWorkspace], XA_CARDINAL, 32,
+		ws->num ? PropModeAppend : PropModeReplace, (unsigned char *)data, 1);
 
 	/* set dusk client atoms */
 	for (i = 1, c = ws->clients; c; c = c->next, ++i) {
@@ -155,8 +167,8 @@ setclientflags(Client *c)
 {
 	unsigned long data1[] = { c->flags & 0xFFFFFFFF };
 	unsigned long data2[] = { c->flags >> 32 };
-	XChangeProperty(dpy, c->win, clientatom[DuskClientFlags1], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data1, 1);
-	XChangeProperty(dpy, c->win, clientatom[DuskClientFlags2], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data2, 1);
+	XChangeProperty(dpy, c->win, clientatom[DuskClientFlags], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data1, 1);
+	XChangeProperty(dpy, c->win, clientatom[DuskClientFlags], XA_CARDINAL, 32, PropModeAppend,  (unsigned char *)data2, 1);
 }
 
 void
@@ -175,8 +187,30 @@ setclientlabel(Client *c)
 void
 getclientflags(Client *c)
 {
-	unsigned long flags1 = getatomprop(c, clientatom[DuskClientFlags1], AnyPropertyType) & 0xFFFFFFFF;
-	unsigned long flags2 = getatomprop(c, clientatom[DuskClientFlags2], AnyPropertyType);
+	int di;
+	unsigned long dl, nitems, flags1 = 0, flags2 = 0;
+	unsigned char *p = NULL;
+	Atom da = None;
+	Atom *cflags;
+
+	if (XGetWindowProperty(dpy, c->win, clientatom[DuskClientFlags], 0L, 2 * sizeof flags1, False,
+			AnyPropertyType, &da, &di, &nitems, &dl, &p) == Success && p) {
+		cflags = (Atom *) p;
+		if (nitems == 2) {
+			flags1 = cflags[0] & 0xFFFFFFFF;
+			flags2 = cflags[1] & 0xFFFFFFFF;
+		}
+		XFree(p);
+	}
+
+	/* Temporary code to allow live restart from previous atom properties */
+	if (!flags1 && !flags2) {
+		Atom flag1atom = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS1", False);
+		Atom flag2atom = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS2", False);
+		flags1 = getatomprop(c, flag1atom, AnyPropertyType) & 0xFFFFFFFF;
+		flags2 = getatomprop(c, flag2atom, AnyPropertyType);
+	}
+	/* End temporary code */
 
 	if (flags1 || flags2) {
 		c->flags = flags1 | (flags2 << 32);
@@ -227,22 +261,27 @@ void
 getworkspacestate(Workspace *ws)
 {
 	Monitor *m;
-	char atom[22] = {0};
-	int di, mon;
-	unsigned long dl;
+	const Layout *layout;
+	int i, di, mon;
+	unsigned long dl, nitems;
 	unsigned char *p = NULL;
 	Atom da, settings = None;
 
-	sprintf(atom, "_DUSK_WORKSPACE_%u", ws->num);
+	if (!(XGetWindowProperty(dpy, root, clientatom[DuskWorkspace], ws->num, LENGTH(wsrules) * sizeof dl,
+			False, AnyPropertyType, &da, &di, &nitems, &dl, &p) == Success && p)) {
+		/* Temporary code to allow live restart from previous atom properties */
+		char atom[22] = {0};
+		sprintf(atom, "_DUSK_WORKSPACE_%u", ws->num == LENGTH(wsrules) ? 4096 : ws->num);
+		Atom wsatom = XInternAtom(dpy, atom, False);
+		if (!(XGetWindowProperty(dpy, root, wsatom, 0L, sizeof settings, False, AnyPropertyType,
+			&da, &di, &nitems, &dl, &p) == Success && p)) {
+			return;
+		}
+		/* End temporary code */
+	}
 
-	Atom wsatom = XInternAtom(dpy, atom, True);
-	if (!wsatom)
-		return;
-
-	if (XGetWindowProperty(dpy, root, wsatom, 0L, sizeof settings, False, AnyPropertyType,
-		&da, &di, &dl, &dl, &p) == Success && p) {
+	if (nitems) {
 		settings = *(Atom *)p;
-		XFree(p);
 
 		/* See bit layout in the persistworkspacestate function */
 		mon = (settings >> 8) & 0x7;
@@ -260,10 +299,30 @@ getworkspacestate(Workspace *ws)
 			ws->ltaxis[STACK] = (settings >> 19) & 0xF;
 			ws->ltaxis[STACK2] = (settings >> 23) & 0xF;
 			ws->enablegaps = (settings >> 28) & 0x1;
+
+			/* Restore layout if we have an exact match, floating layout interpreted as 0x7fff800 */
+			for (i = 0; i < LENGTH(layouts); i++) {
+				layout = &layouts[i];
+				if ((layout->arrange == flextile
+					&& ws->ltaxis[LAYOUT] == layout->preset.layout
+					&& ws->ltaxis[MASTER] == layout->preset.masteraxis
+					&& ws->ltaxis[STACK]  == layout->preset.stack1axis
+					&& ws->ltaxis[STACK2] == layout->preset.stack2axis)
+					|| ((settings & 0x7fff800) == 0x7fff800
+					&& layout->arrange == NULL)
+				) {
+					ws->layout = layout;
+					strncpy(ws->ltsymbol, ws->layout->symbol, sizeof ws->ltsymbol);
+					break;
+				}
+			}
+
 			if (ws->visible)
 				ws->mon->selws = ws;
 		}
 	}
+
+	XFree(p);
 }
 
 void

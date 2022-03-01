@@ -1,4 +1,4 @@
-static unsigned long prevwsmask;
+static unsigned long prevwsmask = 1 << 1;
 static Workspace *stickyws;
 
 void
@@ -21,7 +21,7 @@ createworkspaces()
 			break;
 
 	const WorkspaceRule stickywsrule = { .name = "Sticky", .layout = i };
-	stickyws = createworkspace(4096, &stickywsrule);
+	stickyws = createworkspace(LENGTH(wsrules), &stickywsrule);
 	stickyws->visible = 1;
 	stickyws->mon = mons; // not sure about how to handle mon
 	stickyws->wh = sh;
@@ -84,6 +84,10 @@ createworkspace(int num, const WorkspaceRule *r)
 	ws->icondef = r->icondef; // default icons
 	ws->iconvac = r->iconvac; // vacant icons
 	ws->iconocc = r->iconocc; // occupied icons
+	ws->scheme[NORMAL] = r->norm_scheme;
+	ws->scheme[VISIBLE] = r->vis_scheme;
+	ws->scheme[SELECTED] = r->sel_scheme;
+	ws->scheme[OCCUPIED] = r->occ_scheme;
 
 	getworkspacestate(ws);
 
@@ -181,7 +185,7 @@ hasfloating(Workspace *ws)
 void
 adjustwsformonitor(Workspace *ws, Monitor *m)
 {
-	if (ws->mon == m)
+	if (!ws || ws->mon == m)
 		return;
 
 	clientsmonresize(ws->clients, ws->mon, m);
@@ -222,7 +226,11 @@ void
 showws(Workspace *ws)
 {
 	if (enabled(Debug))
-		fprintf(stderr, "showws called for ws %s\n", ws->name);
+		fprintf(stderr, "showws called for ws %s\n", ws ? ws->name : "NULL");
+
+	if (!ws)
+		return;
+
 	ws->visible = 1;
 	selws = ws->mon->selws = ws;
 }
@@ -718,7 +726,7 @@ nextvismonws(Monitor *mon, Workspace *ws)
 void
 assignworkspacetomonitor(Workspace *ws, Monitor *m)
 {
-	if (ws->mon == m)
+	if (!ws || ws->mon == m)
 		return;
 
 	adjustwsformonitor(ws, m);

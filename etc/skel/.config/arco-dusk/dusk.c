@@ -150,6 +150,7 @@ enum {
 	SchemeFlexActFloat,
 	SchemeFlexInaFloat,
 	SchemeFlexSelFloat,
+	SchemeLast, // leave this as the last item, mmmkay
 }; /* color schemes */
 
 enum {
@@ -220,10 +221,10 @@ enum {
 
 enum {
 	IsFloating,
-	DuskClientFlags1,
-	DuskClientFlags2,
+	DuskClientFlags,
 	DuskClientFields,
 	DuskClientLabel,
+	DuskWorkspace,
 	SteamGameID,
 	ClientLast
 }; /* dusk client atoms */
@@ -240,14 +241,13 @@ enum {
 	ClkLast
 }; /* clicks */
 
-/* Named flextile constants */
 enum {
 	LAYOUT,       // controls overall layout arrangement / split
 	MASTER,       // indicates the tile arrangement for the master area
 	STACK,        // indicates the tile arrangement for the stack area
 	STACK2,       // indicates the tile arrangement for the secondary stack area
 	LTAXIS_LAST,
-};
+}; /* named flextile constants */
 
 typedef struct ClientState ClientState;
 struct ClientState {
@@ -285,6 +285,8 @@ struct Client {
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh;
 	int bw, oldbw;
 	int group;
+	int area; // arrangement area (master, stack, secondary stack)
+	int arr;  // tile arrangement (left to right, top to bottom, etc.)
 	int scheme;
 	char scratchkey;
 	unsigned int idx;
@@ -366,6 +368,7 @@ struct Workspace {
 	char ltsymbol[64];
 	char name[16];
 	float mfact;
+	int scheme[4];
 	int ltaxis[4];
 	int nstack;
 	int nmaster;
@@ -396,6 +399,10 @@ typedef struct {
 	int nmaster;
 	int nstack;
 	int enablegaps;
+	int norm_scheme;
+	int vis_scheme;
+	int sel_scheme;
+	int occ_scheme;
 	char *icondef;
 	char *iconvac;
 	char *iconocc;
@@ -403,6 +410,7 @@ typedef struct {
 
 /* function declarations */
 static void applyrules(Client *c);
+static int reapplyrules(Client *c);
 static int applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact);
 static void arrange(Workspace *ws);
 static void arrangemon(Monitor *m);
@@ -416,6 +424,7 @@ static void cleanupmon(Monitor *mon);
 static void clientfittomon(Client *c, Monitor *m, int *cx, int *cy, int *cw, int *ch);
 static void clientfsrestore(Client *c);
 static void clientsfsrestore(Client *clients);
+static int clientscheme(Client *c, Client *sel);
 static void clientmessage(XEvent *e);
 static void clientmonresize(Client *c, Monitor *from, Monitor *to);
 static void clientsmonresize(Client *clients, Monitor *from, Monitor *to);
@@ -423,10 +432,10 @@ static void clientrelposmon(Client *c, Monitor *o, Monitor *n, int *cx, int *cy,
 static void clienttomon(const Arg *arg);
 static void clientstomon(const Arg *arg);
 static void configure(Client *c);
-static void configurenotify(XEvent *e);
+static Workspace *configurenotify(XEvent *e);
 static void configurerequest(XEvent *e);
 static Monitor *createmon(int num);
-static void destroynotify(XEvent *e);
+static Workspace *destroynotify(XEvent *e);
 static void detach(Client *c);
 static void detachstack(Client *c);
 static Monitor *dirtomon(int dir);
@@ -485,11 +494,12 @@ static void sigchld(int unused);
 static void skipfocusevents(void);
 static void spawn(const Arg *arg);
 static pid_t spawncmd(const Arg *arg, int buttonclick);
+static void structurenotify(XEvent *e);
 static void togglefloating(const Arg *arg);
 static void togglemaximize(Client *c, int maximize_vert, int maximize_horz);
 static void unfocus(Client *c, int setfocus, Client *nextfocus);
 static void unmanage(Client *c, int destroyed);
-static void unmapnotify(XEvent *e);
+static Workspace *unmapnotify(XEvent *e);
 static void updateclientlist(void);
 static int updategeom(void);
 static void updatenumlockmask(void);
@@ -527,9 +537,9 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[ButtonPress] = buttonpress,
 	[ButtonRelease] = keyrelease,
 	[ClientMessage] = clientmessage,
-	[ConfigureNotify] = configurenotify,
+	[ConfigureNotify] = structurenotify,
 	[ConfigureRequest] = configurerequest,
-	[DestroyNotify] = destroynotify,
+	[DestroyNotify] = structurenotify,
 	[EnterNotify] = enternotify,
 	[Expose] = expose,
 	[FocusIn] = focusin,
@@ -540,7 +550,7 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[MotionNotify] = motionnotify,
 	[PropertyNotify] = propertynotify,
 	[ResizeRequest] = resizerequest,
-	[UnmapNotify] = unmapnotify
+	[UnmapNotify] = structurenotify,
 };
 static Atom wmatom[WMLast], netatom[NetLast], allowed[NetWMActionLast], xatom[XLast], clientatom[ClientLast];
 static int running = 1;
@@ -561,19 +571,26 @@ static Window root, wmcheckwin;
 void
 applyrules(Client *c)
 {
-	const char *class, *instance;
-	Atom wintype, game_id;
-	char role[64] = {0};
-	unsigned int i, transient;
 	const Rule *r;
+	const char *class, *instance;
+	Atom game_id = None, da = None, *win_types = NULL;
+	char role[64] = {0};
+	int di;
+	unsigned long dl, nitems;
+	unsigned char *p = NULL;
+	unsigned int i, transient;
 	Workspace *ws = NULL;
 	XClassHint ch = { NULL, NULL };
+
+	if (XGetWindowProperty(dpy, c->win, netatom[NetWMWindowType], 0L, sizeof(Atom), False, XA_ATOM,
+			&da, &di, &nitems, &dl, &p) == Success && p) {
+		win_types = (Atom *) p;
+	}
 
 	/* rule matching */
 	XGetClassHint(dpy, c->win, &ch);
 	class    = ch.res_class ? ch.res_class : broken;
 	instance = ch.res_name  ? ch.res_name  : broken;
-	wintype  = getatomprop(c, netatom[NetWMWindowType], XA_ATOM);
 	gettextprop(c->win, wmatom[WMWindowRole], role, sizeof(role));
 	game_id = getatomprop(c, clientatom[SteamGameID], AnyPropertyType);
 	transient = ISTRANSIENT(c) ? 1 : 0;
@@ -584,7 +601,7 @@ applyrules(Client *c)
 		class = "steam_app_";
 
 	if (enabled(Debug))
-		fprintf(stderr, "applyrules: new client %s, class = '%s', instance = '%s', role = '%s', wintype = '%ld'\n", c->name, class, instance, role, wintype);
+		fprintf(stderr, "applyrules: new client %s, class = '%s', instance = '%s', role = '%s', wintype = '%ld'\n", c->name, class, instance, role, nitems ? win_types[0] : 0);
 
 	for (i = 0; i < LENGTH(clientrules); i++) {
 		r = &clientrules[i];
@@ -592,7 +609,7 @@ applyrules(Client *c)
 		&& (!r->class || strstr(class, r->class))
 		&& (!r->role || strstr(role, r->role))
 		&& (!r->instance || strstr(instance, r->instance))
-		&& (!r->wintype || wintype == XInternAtom(dpy, r->wintype, False))
+		&& (!r->wintype || atomin(XInternAtom(dpy, r->wintype, False), win_types, nitems))
 		&& (r->transient == transient))
 		{
 			c->flags |= Ruled | r->flags;
@@ -615,7 +632,7 @@ applyrules(Client *c)
 			else
 				saveclientclass(c);
 
-			if (enabled(Debug))
+			if (enabled(Debug) || DEBUGGING(c))
 				fprintf(stderr, "applyrules: client rule %d matched:\n    class: %s\n    role: %s\n    instance: %s\n    title: %s\n    wintype: %s\n    flags: %ld\n    floatpos: %s\n    workspace: %s\n    label: %s\n",
 					i,
 					r->class ? r->class : "NULL",
@@ -642,6 +659,122 @@ applyrules(Client *c)
 		XFree(ch.res_class);
 	if (ch.res_name)
 		XFree(ch.res_name);
+	if (p)
+		XFree(p);
+}
+
+/* This mimics most of what the manage function does when initially managing the window. It returns
+ * 1 if rules were applied, and 0 otherwise. A window getting rules applied this way will not be
+ * swallowed.
+ */
+int
+reapplyrules(Client *c)
+{
+	Client *t;
+	Window trans = None;
+	Workspace *client_ws, *rule_ws;
+
+	if (RULED(c))
+		return 0;
+
+	client_ws = c->ws;
+	applyrules(c);
+
+	if (!RULED(c))
+		return 0;
+
+	if (DISALLOWED(c)) {
+		killclient(&((Arg) { .v = c }));
+		return 1;
+	}
+
+	if (ISUNMANAGED(c)) {
+		XMapWindow(dpy, c->win);
+		if (LOWER(c))
+			XLowerWindow(dpy, c->win);
+		else if (RAISE(c))
+			XRaiseWindow(dpy, c->win);
+		unmanage(c, 0);
+		if (client_ws) {
+			focus(NULL);
+			arrange(client_ws);
+			drawbar(client_ws->mon);
+		}
+		return 1;
+	}
+
+	rule_ws = c->ws;
+	if (rule_ws != client_ws || ISSTICKY(c)) {
+		c->ws = client_ws;
+		detach(c);
+		detachstack(c);
+		if (ISSTICKY(c)) {
+			stickyws->next = rule_ws;
+			stickyws->mon = rule_ws->mon;
+			c->ws = stickyws;
+			stickyws->sel = c;
+			rule_ws = stickyws;
+		} else
+			c->ws = rule_ws;
+		attach(c);
+		attachstack(c);
+		if (client_ws->visible)
+			arrange(client_ws);
+		else if (client_ws->mon != rule_ws->mon)
+			drawbar(client_ws->mon);
+	}
+
+	if (NOBORDER(c))
+		c->bw = 0;
+	if (c->opacity)
+		opacity(c, c->opacity);
+
+	if (ISCENTERED(c)) {
+		/* Transient windows are centered within the geometry of the parent window */
+		if (ISTRANSIENT(c) && XGetTransientForHint(dpy, c->win, &trans) && (t = wintoclient(trans))) {
+			c->sfx = c->x = t->x + WIDTH(t) / 2 - WIDTH(c) / 2;
+			c->sfy = c->y = t->y + HEIGHT(t) / 2 - HEIGHT(c) / 2;
+		} else {
+			c->sfx = c->x = c->ws->mon->wx + (c->ws->mon->ww - WIDTH(c)) / 2;
+			c->sfy = c->y = c->ws->mon->wy + (c->ws->mon->wh - HEIGHT(c)) / 2;
+		}
+	}
+
+	if (rule_ws->visible && rule_ws != stickyws)
+		arrange(rule_ws);
+	else
+		drawbar(rule_ws->mon);
+
+	/* If the client indicates that it is in fullscreen, or if the FullScreen flag has been
+	 * explictly set via client rules, then enable fullscreen now. */
+	if (getatomprop(c, netatom[NetWMState], XA_ATOM) == netatom[NetWMFullscreen] || ISFULLSCREEN(c)) {
+		setflag(c, FullScreen, 0);
+		setfullscreen(c, 1, 0);
+	} else if (ISFLOATING(c)) {
+		XRaiseWindow(dpy, c->win);
+		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+	}
+
+	if (LOWER(c))
+		XLowerWindow(dpy, c->win);
+	else if (RAISE(c))
+		XRaiseWindow(dpy, c->win);
+
+	updatesizehints(c);
+	updateclientdesktop(c);
+	updatewmhints(c);
+	updatemotifhints(c);
+	setfloatinghint(c);
+
+	if (SEMISCRATCHPAD(c) && c->scratchkey)
+		initsemiscratchpad(c);
+
+	if (ISVISIBLE(c))
+		show(c);
+	else
+		hide(c);
+
+	return 1;
 }
 
 int
@@ -980,7 +1113,7 @@ clientmessage(XEvent *e)
 	if (!c)
 		return;
 
-	if (enabled(Debug)) {
+	if (enabled(Debug) || DEBUGGING(c)) {
 		fprintf(stderr, "clientmessage: received message type of %s (%ld) for client %s\n", XGetAtomName(dpy, cme->message_type), cme->message_type, c->name);
 		fprintf(stderr, "    - data 0 = %s (%ld)\n", (cme->data.l[0] == 0 ? "_NET_WM_STATE_REMOVE" : cme->data.l[0] == 1 ? "_NET_WM_STATE_ADD" : cme->data.l[0] == 2 ? "_NET_WM_STATE_TOGGLE" : "?"), cme->data.l[0]);
 		fprintf(stderr, "    - data 1 = %s (%ld)\n", XGetAtomName(dpy, cme->data.l[1]), cme->data.l[1]);
@@ -1150,6 +1283,35 @@ clientsfsrestore(Client *clients)
 		clientfsrestore(c);
 }
 
+int
+clientscheme(Client *c, Client *s)
+{
+	int active = 0, sel = 0;
+
+	if (!c)
+		return SchemeTitleNorm;
+
+	if (c->ws == selws) {
+		sel = c == s;
+		active = !sel && s && s->area == c->area;
+	}
+
+	if (ISMARKED(c))
+		return SchemeMarked;
+	if (HIDDEN(c))
+		return sel ? SchemeHidSel : SchemeHidNorm;
+	if (ISSCRATCHPAD(c))
+		return sel ? SchemeScratchSel : SchemeScratchNorm;
+	if (ISFLOATING(c))
+		return sel ? SchemeFlexSelFloat : active ? SchemeFlexActFloat : SchemeFlexInaFloat;
+	if (ISURGENT(c))
+		return SchemeUrg;
+
+	if (enabled(FlexWinBorders))
+		return c->arr + (sel ? SchemeFlexSelTTB : active ? SchemeFlexActTTB : SchemeFlexInaTTB);
+	return sel ? SchemeTitleSel : SchemeTitleNorm;
+}
+
 /* Works out a client's (c) position on a new monitor (n) relative to that of the position on
  * another (o) monitor.
  *
@@ -1233,7 +1395,7 @@ configure(Client *c)
 	XSendEvent(dpy, c->win, False, StructureNotifyMask, (XEvent *)&ce);
 }
 
-void
+Workspace *
 configurenotify(XEvent *e)
 {
 	Monitor *m;
@@ -1287,6 +1449,8 @@ configurenotify(XEvent *e)
 			arrange(NULL);
 		}
 	}
+
+	return NULL;
 }
 
 void
@@ -1300,7 +1464,7 @@ configurerequest(XEvent *e)
 
 	if ((c = wintoclient(ev->window))) {
 
-		if (enabled(Debug)) {
+		if (enabled(Debug) || DEBUGGING(c)) {
 			fprintf(stderr, "configurerequest: received event %ld for client %s\n", ev->value_mask, c->name);
 			fprintf(stderr, "    - x = %d, y = %d, w = %d, h = %d\n", ev->x, ev->y, ev->width, ev->height);
 		}
@@ -1380,34 +1544,36 @@ createmon(int num)
 	return m;
 }
 
-void
+Workspace *
 destroynotify(XEvent *e)
 {
 	Client *c;
 	Bar *bar;
+	Workspace *ws = NULL;
 	XDestroyWindowEvent *ev = &e->xdestroywindow;
 
 	if ((c = wintoclient(ev->window))) {
-		if (enabled(Debug))
+		ws = c->ws;
+		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for client %s\n", c->name);
 		unmanage(c, 1);
-	}
-	else if ((c = swallowingclient(ev->window))) {
-		if (enabled(Debug))
+	} else if ((c = swallowingclient(ev->window))) {
+		ws = c->ws;
+		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for swallowing client %s\n", c->name);
 		unmanage(c->swallowing, 1);
-	}
-	else if (enabled(Systray) && (c = wintosystrayicon(ev->window))) {
-		if (enabled(Debug))
+	} else if (enabled(Systray) && (c = wintosystrayicon(ev->window))) {
+		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: removing systray icon for client %s\n", c->name);
 		removesystrayicon(c);
 		drawbarwin(systray->bar);
-	}
-	else if ((bar = wintobar(ev->window))) {
+	} else if ((bar = wintobar(ev->window))) {
 		if (enabled(Debug))
 			fprintf(stderr, "destroynotify: received event for bar %s\n", bar->name);
 		recreatebar(bar);
 	}
+
+	return ws;
 }
 
 void
@@ -1583,6 +1749,7 @@ focus(Client *c)
 			XSync(dpy, False);
 			skipfocusevents();
 		}
+		XSetWindowBorder(dpy, c->win, scheme[clientscheme(c, c)][ColBorder].pixel);
 	} else {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
@@ -1607,7 +1774,7 @@ focusin(XEvent *e)
 {
 	Workspace *ws = selws;
 	XFocusChangeEvent *ev = &e->xfocus;
-	if (ws->sel && ev->window != ws->sel->win)
+	if (ws->sel && ev->window != ws->sel->win && wintoclient(ev->window))
 		setfocus(ws->sel);
 }
 
@@ -1883,7 +2050,7 @@ keyrelease(XEvent *e)
 	Monitor *m = selmon;
 
 	wsmask = getwsmask(m);
-	if (prevwsmask == wsmask)
+	if (prevwsmask == wsmask && m->wsmask)
 		viewwsmask(m, m->wsmask);
 	else
 		m->wsmask = prevwsmask;
@@ -1943,7 +2110,8 @@ manage(Window w, XWindowAttributes *wa)
 
 	updateicon(c);
 	updatetitle(c);
-	fprintf(stderr, "manage --> client %s\n", c->name);
+	if (enabled(Debug))
+		fprintf(stderr, "manage --> client %s\n", c->name);
 	getclientflags(c);
 	getclientfields(c);
 	getclientopacity(c);
@@ -1981,7 +2149,8 @@ manage(Window w, XWindowAttributes *wa)
 		else if (RAISE(c))
 			XRaiseWindow(dpy, c->win);
 		free(c);
-		fprintf(stderr, "manage <-- unmanaged (%s)\n", c->name);
+		if (enabled(Debug))
+			fprintf(stderr, "manage <-- unmanaged (%s)\n", c->name);
 		return;
 	}
 
@@ -2126,7 +2295,8 @@ manage(Window w, XWindowAttributes *wa)
 	if (!c->ws->visible)
 		drawbar(c->ws->mon);
 
-	fprintf(stderr, "manage <-- (%s) on workspace %s\n", c->name, c->ws->name);
+	if (enabled(Debug))
+		fprintf(stderr, "manage <-- (%s) on workspace %s\n", c->name, c->ws->name);
 }
 
 void
@@ -2293,7 +2463,7 @@ propertynotify(XEvent *e)
 		return; /* ignore */
 	} else if ((c = wintoclient(ev->window))) {
 
-		if (enabled(Debug) && ev->atom != netatom[NetWMUserTime])
+		if ((enabled(Debug) || DEBUGGING(c)) && ev->atom != netatom[NetWMUserTime])
 			fprintf(stderr, "propertynotify: received message type of %s (%ld) for client %s\n", XGetAtomName(dpy, ev->atom), ev->atom, c->name);
 
 		switch (ev->atom) {
@@ -2318,7 +2488,7 @@ propertynotify(XEvent *e)
 		}
 		if (ev->atom == XA_WM_NAME || ev->atom == netatom[NetWMName]) {
 			updatetitle(c);
-			if (c == c->ws->sel)
+			if (!reapplyrules(c) && c == c->ws->sel)
 				drawbar(c->ws->mon);
 		}
 		else if (ev->atom == motifatom)
@@ -2329,7 +2499,8 @@ propertynotify(XEvent *e)
 				drawbar(selws->mon);
 		} else if (ev->atom == wmatom[WMClass]) {
 			saveclientclass(c);
-			drawbars();
+			if (!reapplyrules(c))
+				drawbars();
 		}
 	}
 }
@@ -2792,9 +2963,6 @@ setup(void)
 
 	enablefunc(functionality);
 
-	if (enabled(Xresources))
-		loadxrdb();
-
 	/* init screen */
 	screen = DefaultScreen(dpy);
 	sw = DisplayWidth(dpy, screen);
@@ -2815,7 +2983,6 @@ setup(void)
 
 
 	updategeom();
-	createworkspaces();
 
 	/* init atoms */
 	utf8string = XInternAtom(dpy, "UTF8_STRING", False);
@@ -2827,10 +2994,10 @@ setup(void)
 	wmatom[WMWindowRole] = XInternAtom(dpy, "WM_WINDOW_ROLE", False);
 	wmatom[WMChangeState] = XInternAtom(dpy, "WM_CHANGE_STATE", False);
 	clientatom[IsFloating] = XInternAtom(dpy, "_IS_FLOATING", False);
-	clientatom[DuskClientFlags1] = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS1", False);
-	clientatom[DuskClientFlags2] = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS2", False);
+	clientatom[DuskClientFlags] = XInternAtom(dpy, "_DUSK_CLIENT_FLAGS", False);
 	clientatom[DuskClientFields] = XInternAtom(dpy, "_DUSK_CLIENT_FIELDS", False);
 	clientatom[DuskClientLabel] = XInternAtom(dpy, "_DUSK_CLIENT_LABEL", False);
+	clientatom[DuskWorkspace] = XInternAtom(dpy, "_DUSK_WORKSPACE", False);
 	clientatom[SteamGameID] = XInternAtom(dpy, "STEAM_GAME", False);
 	netatom[NetActiveWindow] = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
 	netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
@@ -2893,13 +3060,17 @@ setup(void)
 	cursor[CurResizeVertArrow] = drw_cur_create(drw, XC_sb_v_double_arrow);
 	cursor[CurIronCross] = drw_cur_create(drw, XC_iron_cross);
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
-	/* init appearance */
 
+	createworkspaces();
+	/* init appearance */
 	scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
-	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], alphas[0], ColCount); // ad-hoc color scheme used by status2d
+	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], alphas[0], 3); // ad-hoc color scheme used by status2d
 
 	for (i = 0; i < LENGTH(colors); i++)
-		scheme[i] = drw_scm_create(drw, colors[i], alphas[i], ColCount);
+		scheme[i] = drw_scm_create(drw, colors[i], alphas[i], 3);
+
+	if (enabled(Xresources))
+		loadxrdb();
 
 	updatebars();
 
@@ -3054,6 +3225,40 @@ spawncmd(const Arg *arg, int buttonclick)
 }
 
 void
+structurenotify(XEvent *e)
+{
+	Workspace *ws = NULL, *prevws = NULL;
+	int multiws = 0;
+
+	do {
+		switch (e->type) {
+		case UnmapNotify:
+			ws = unmapnotify(e);
+			break;
+		case DestroyNotify:
+			ws = destroynotify(e);
+			break;
+		case ConfigureNotify:
+			ws = configurenotify(e);
+			break;
+		}
+		if (prevws && prevws != ws)
+			multiws = 1;
+		prevws = ws;
+	} while (XCheckMaskEvent(dpy, StructureNotifyMask|SubstructureNotifyMask, e));
+
+	if (multiws) {
+		focus(NULL);
+		arrange(NULL);
+		drawbars();
+	} else if (ws) {
+		focus(NULL);
+		arrange(ws);
+		drawbar(ws->mon);
+	}
+}
+
+void
 togglefloating(const Arg *arg)
 {
 	Client *c = CLIENT;
@@ -3156,8 +3361,12 @@ unfocus(Client *c, int setfocus, Client *nextfocus)
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
 	}
-	if (!ISMARKED(c))
-		XSetWindowBorder(dpy, c->win, scheme[c->scheme][ColBorder].pixel);
+
+	if (enabled(FlexWinBorders))
+		setwindowborders(c->ws, nextfocus);
+	else
+		XSetWindowBorder(dpy, c->win, scheme[clientscheme(c, nextfocus)][ColBorder].pixel);
+
 	c->ws->sel = NULL;
 }
 
@@ -3206,9 +3415,6 @@ unmanage(Client *c, int destroyed)
 	}
 	free(c);
 
-	focus(NULL);
-	arrange(ws);
-	drawbar(ws->mon);
 	updateclientlist();
 
 	if (revertws) {
@@ -3235,16 +3441,21 @@ unmanage(Client *c, int destroyed)
  *
  * https://tronche.com/gui/x/xlib/events/window-state-change/unmap.html
  */
-void
+Workspace *
 unmapnotify(XEvent *e)
 {
 	Client *c;
-	XUnmapEvent *ev = &e->xunmap;
+	XUnmapEvent *ev;
+	Workspace *ws = NULL;
+
+	ev = &e->xunmap;
+
 	if (enabled(Debug))
 		fprintf(stderr, "unmapnotify: received event type %s (%d), serial %ld, window %ld, event %ld, ev->send_event = %d, ev->from_configure = %d\n", XGetAtomName(dpy, ev->type), ev->type, ev->serial, ev->window, ev->event, ev->send_event, ev->from_configure);
 
 	if ((c = wintoclient(ev->window))) {
-		if (enabled(Debug))
+		ws = c->ws;
+		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "unmapnotify: window %ld --> client %s (%s)\n", ev->window, c->name, ev->send_event ? "WithdrawnState" : "unmanage");
 		if (ev->send_event)
 			setclientstate(c, WithdrawnState);
@@ -3256,6 +3467,8 @@ unmapnotify(XEvent *e)
 		XMapRaised(dpy, c->win);
 		drawbarwin(systray->bar);
 	}
+
+	return ws;
 }
 
 void
