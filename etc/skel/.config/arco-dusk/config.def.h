@@ -469,7 +469,7 @@ static const Layout layouts[] = {
 /* Scratch/Spawn commands:        NULL (scratchkey), command, argument, argument, ..., NULL */
 static const char *filemanager[]  = { NULL, "thunar", NULL };
 static const char *browser[]  = { NULL, "firefox", NULL };
-static const char *logout[]  = { NULL, "arcolinux-logout", NULL };
+static const char *logout[]  = { NULL, "archlinux-logout", NULL };
 static const char *termcmd[]  = { NULL, "st", NULL };
 static const char *dmenucmd[] = {
 	NULL,
@@ -495,7 +495,7 @@ static Key keys[] = {
 	{ KeyPress,   ControlMask|Alt,              XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
 	{ KeyPress,   ControlMask|Alt,              XK_f,            spawn,                  {.v = browser } }, // spawn browser
 	{ KeyPress,   MODKEY|Shift,                 XK_Return,       spawn,                  {.v = filemanager } }, // draw/spawn a terminal
-	{ KeyPress,   MODKEY,                       XK_x,            spawn,                  {.v = logout } }, // arcolinux-logout
+	{ KeyPress,   MODKEY,                       XK_x,            spawn,                  {.v = logout } }, // archlinux-logout
 	{ KeyPress,   MODKEY|Shift,                 XK_r,            restart,                {0} }, // restart dusk
 	{ KeyPress,   MODKEY|Shift,                 XK_q,            killclient,             {0} }, // close the currently focused window
 	{ KeyPress,   MODKEY,                       XK_d,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
