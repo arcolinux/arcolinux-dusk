@@ -56,6 +56,7 @@
 #define Button9                 9
 #define BARRULES                50
 #define NUM_STATUSES            10
+#define STATUS_BUFFER           512
 #define BUTTONMASK              (ButtonPressMask|ButtonReleaseMask)
 #define CLEANMASK(mask)         (mask & ~(numlockmask|LockMask) & (ShiftMask|ControlMask|Mod1Mask|Mod2Mask|Mod3Mask|Mod4Mask|Mod5Mask))
 #define INTERSECT(X,Y,W,H,Z)    (MAX(0, MIN((X)+(W),(Z)->wx+(Z)->ww) - MAX((X),(Z)->wx)) \
@@ -67,8 +68,7 @@
 #define WIDTH(X)                ((X)->w + 2 * (X)->bw)
 #define HEIGHT(X)               ((X)->h + 2 * (X)->bw)
 #define WTYPE                   "_NET_WM_WINDOW_TYPE_"
-#define TEXTWM(X)               (drw_fontset_getwidth(drw, (X), True))
-#define TEXTW(X)                (drw_fontset_getwidth(drw, (X), False))
+#define TEXTW(X)                (drw_fontset_getwidth(drw, (X)))
 #define TEXT2DW(X)              (status2dtextlength((X)))
 #define CLIENT                  (arg && arg->v ? (Client*)arg->v : selws->sel)
 
@@ -84,6 +84,7 @@ enum {
 	CurNormal,
 	CurResize,
 	CurMove,
+	CurSwallow,
 	CurLast
 }; /* cursor */
 
@@ -249,11 +250,6 @@ enum {
 	LTAXIS_LAST,
 }; /* named flextile constants */
 
-typedef struct ClientState ClientState;
-struct ClientState {
-	int isfixed, isfloating, isurgent, neverfocus, oldstate, isfullscreen;
-};
-
 typedef union {
 	long i;
 	unsigned long ui;
@@ -289,6 +285,7 @@ struct Client {
 	int arr;  // tile arrangement (left to right, top to bottom, etc.)
 	int scheme;
 	char scratchkey;
+	char swallowkey;
 	unsigned int idx;
 	double opacity;
 	pid_t pid;
@@ -301,8 +298,8 @@ struct Client {
 	Window win;
 	unsigned int icw, ich;
 	Picture icon;
-	unsigned long flags;
-	unsigned long prevflags;
+	uint64_t flags;
+	uint64_t prevflags;
 };
 
 typedef struct {
@@ -339,7 +336,8 @@ struct Monitor {
 	int gappoh;           /* horizontal outer gaps */
 	int gappov;           /* vertical outer gaps */
 	int showbar;
-	unsigned long wsmask;
+	uint64_t wsmask;
+	uint64_t prevwsmask;
 	unsigned int borderpx;
 	Monitor *next;
 	Workspace *selws;
@@ -355,11 +353,12 @@ typedef struct {
 	const char *wintype;
 	const int transient;
 	const double opacity;
-	const unsigned long flags;
+	const uint64_t flags;
 	const char *floatpos;
 	const char scratchkey;
 	const char *workspace;
 	const char *label;
+	const char swallowedby;
 	int resume;
 } Rule;
 
@@ -493,8 +492,9 @@ static void show(Client *c);
 static void sigchld(int unused);
 static void skipfocusevents(void);
 static void spawn(const Arg *arg);
-static pid_t spawncmd(const Arg *arg, int buttonclick);
+static pid_t spawncmd(const Arg *arg, int buttonclick, int orphan);
 static void structurenotify(XEvent *e);
+static unsigned int textw_clamp(const char *str, unsigned int n);
 static void togglefloating(const Arg *arg);
 static void togglemaximize(Client *c, int maximize_vert, int maximize_horz);
 static void unfocus(Client *c, int setfocus, Client *nextfocus);
@@ -519,7 +519,7 @@ static void zoom(const Arg *arg);
 
 /* variables */
 static const char broken[] = "fubar";
-static char rawstatustext[NUM_STATUSES][512];
+static char rawstatustext[NUM_STATUSES][STATUS_BUFFER];
 
 static int screen;
 static int sw, sh;             /* X display screen geometry width, height */
@@ -528,6 +528,7 @@ static int force_warp = 0;     /* force warp in some situations, e.g. killclient
 static int ignore_warp = 0;    /* force skip warp in some situations, e.g. dragmfact, dragcfact */
 static int num_workspaces = 0; /* the number of available workspaces */
 static int combo = 0;          /* used for combo keys */
+static int monitorchanged = 0; /* used for combo logic */
 static int grp_idx = 0;        /* used for grouping windows together */
 static int arrange_focus_on_monocle = 1; /* used in focus to arrange monocle layouts on focus */
 
@@ -614,6 +615,7 @@ applyrules(Client *c)
 		{
 			c->flags |= Ruled | r->flags;
 			c->scratchkey = r->scratchkey;
+			c->swallowkey = r->swallowedby;
 
 			if (r->opacity)
 				c->opacity = r->opacity;
@@ -673,15 +675,23 @@ reapplyrules(Client *c)
 	Client *t;
 	Window trans = None;
 	Workspace *client_ws, *rule_ws;
+	uint64_t flags;
 
-	if (RULED(c))
+	if (RULED(c) && !REAPPLYRULES(c))
 		return 0;
+
+	flags = c->flags;
+	c->flags = 0;
 
 	client_ws = c->ws;
 	applyrules(c);
 
-	if (!RULED(c))
+	if (!RULED(c)) {
+		c->flags = flags;
 		return 0;
+	}
+
+	removeflag(c, ReapplyRules);
 
 	if (DISALLOWED(c)) {
 		killclient(&((Arg) { .v = c }));
@@ -753,6 +763,7 @@ reapplyrules(Client *c)
 	} else if (ISFLOATING(c)) {
 		XRaiseWindow(dpy, c->win);
 		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+		savefloats(c);
 	}
 
 	if (LOWER(c))
@@ -760,7 +771,6 @@ reapplyrules(Client *c)
 	else if (RAISE(c))
 		XRaiseWindow(dpy, c->win);
 
-	updatesizehints(c);
 	updateclientdesktop(c);
 	updatewmhints(c);
 	updatemotifhints(c);
@@ -810,6 +820,8 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 	if (*w < bh)
 		*w = bh;
 	if (!IGNORESIZEHINTS(c) && (enabled(ResizeHints) || RESPECTSIZEHINTS(c) || ISFLOATING(c) || !c->ws->layout->arrange)) {
+		if (REFRESHSIZEHINTS(c))
+			updatesizehints(c);
 		/* see last two sentences in ICCCM 4.1.2.3 */
 		baseismin = c->basew == c->minw && c->baseh == c->minh;
 		if (!baseismin) { /* temporarily remove base dimensions */
@@ -950,10 +962,25 @@ cleanup(void)
 	Layout foo = { "", NULL };
 	Workspace *ws, *next;
 	size_t i;
-	selws->layout = &foo;
+
+	/* Persist data for restart purposes. */
 	for (ws = workspaces; ws; ws = ws->next)
+		persistworkspacestate(ws);
+	persistworkspacestate(stickyws);
+
+	/* Kill child processes */
+	for (i = 0; i < autostart_len; i++) {
+		if (0 < autostart_pids[i]) {
+			kill(autostart_pids[i], SIGTERM);
+			waitpid(autostart_pids[i], NULL, 0);
+		}
+	}
+
+	for (ws = workspaces; ws; ws = ws->next) {
+		ws->layout = &foo;
 		while (ws->stack)
 			unmanage(ws->stack, 0);
+	}
 	XUngrabKey(dpy, AnyKey, AnyModifier, root);
 	while (mons)
 		cleanupmon(mons);
@@ -1258,7 +1285,7 @@ clientmonresize(Client *c, Monitor *from, Monitor *to)
 void
 clientsmonresize(Client *clients, Monitor *from, Monitor *to)
 {
-	if (from == to)
+	if (from == to || !from || !to)
 		return;
 
 	for (Client *c = clients; c; c = c->next)
@@ -1536,6 +1563,8 @@ createmon(int num)
 	m->gappiv = gappiv;
 	m->gappoh = gappoh;
 	m->gappov = gappov;
+	m->wsmask = 0;
+	m->prevwsmask = 0;
 	m->num = num;
 	m->bar = NULL;
 
@@ -1557,7 +1586,7 @@ destroynotify(XEvent *e)
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for client %s\n", c->name);
 		unmanage(c, 1);
-	} else if ((c = swallowingclient(ev->window))) {
+	} else if ((c = swallowingparent(ev->window))) {
 		ws = c->ws;
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for swallowing client %s\n", c->name);
@@ -1908,13 +1937,11 @@ gettextprop(Window w, Atom atom, char *text, unsigned int size)
 	text[0] = '\0';
 	if (!XGetTextProperty(dpy, w, &name, atom) || !name.nitems)
 		return 0;
-	if (name.encoding == XA_STRING)
+	if (name.encoding == XA_STRING) {
 		strncpy(text, (char *)name.value, size - 1);
-	else {
-		if (XmbTextPropertyToTextList(dpy, &name, &list, &n) >= Success && n > 0 && *list) {
-			strncpy(text, *list, size - 1);
-			XFreeStringList(list);
-		}
+	} else if (XmbTextPropertyToTextList(dpy, &name, &list, &n) >= Success && n > 0 && *list) {
+		strncpy(text, *list, size - 1);
+		XFreeStringList(list);
 	}
 	text[size - 1] = '\0';
 	XFree(name.value);
@@ -2046,15 +2073,16 @@ keyrelease(XEvent *e)
 	if (!combo)
 		return;
 
-	unsigned long wsmask;
-	Monitor *m = selmon;
+	Monitor *m = selws->mon;
+	uint64_t wsmask = getwsmask(m);
 
-	wsmask = getwsmask(m);
-	if (prevwsmask == wsmask && m->wsmask)
-		viewwsmask(m, m->wsmask);
-	else
-		m->wsmask = prevwsmask;
+	if (m->prevwsmask == wsmask && m->wsmask) {
+		if (!monitorchanged && getallwsmask(m) & m->wsmask)
+			viewwsmask(m, m->wsmask);
+	} else if (m->prevwsmask)
+		m->wsmask = m->prevwsmask;
 	combo = 0;
+	monitorchanged = 0;
 }
 
 void
@@ -2110,6 +2138,7 @@ manage(Window w, XWindowAttributes *wa)
 
 	updateicon(c);
 	updatetitle(c);
+	updatesizehints(c);
 	if (enabled(Debug))
 		fprintf(stderr, "manage --> client %s\n", c->name);
 	getclientflags(c);
@@ -2148,9 +2177,9 @@ manage(Window w, XWindowAttributes *wa)
 			XLowerWindow(dpy, c->win);
 		else if (RAISE(c))
 			XRaiseWindow(dpy, c->win);
-		free(c);
 		if (enabled(Debug))
 			fprintf(stderr, "manage <-- unmanaged (%s)\n", c->name);
+		free(c);
 		return;
 	}
 
@@ -2183,8 +2212,8 @@ manage(Window w, XWindowAttributes *wa)
 	wc.border_width = c->bw;
 	XConfigureWindow(dpy, w, CWBorderWidth, &wc);
 	configure(c); /* propagates border_width, if size doesn't change */
-	updatesizehints(c);
 	updateclientdesktop(c);
+	addflag(c, RefreshSizeHints);
 
 	/* If the client indicates that it is in fullscreen, or if the FullScreen flag has been
 	 * explictly set via client rules, then enable fullscreen now. */
@@ -2199,7 +2228,8 @@ manage(Window w, XWindowAttributes *wa)
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
 	grabbuttons(c, 0);
 
-	if (trans != None)
+	/* If this is a transient window for a window that is managed by the window manager, then it should be floating. */
+	if (t)
 		c->prevflags |= Floating;
 	if (!ISFLOATING(c) && (ISFIXED(c) || WASFLOATING(c) || getatomprop(c, clientatom[IsFloating], AnyPropertyType)))
 		SETFLOATING(c);
@@ -2211,7 +2241,7 @@ manage(Window w, XWindowAttributes *wa)
 		PropModeReplace, (unsigned char *) allowed, NetWMActionLast);
 
 	/* Do not attach client if it is being swallowed */
-	if (term && swallow(term, c)) {
+	if (term && swallowclient(term, c)) {
 		/* Do not let swallowed client steal focus unless the terminal has focus */
 		focusclient = (term == selws->sel);
 	} else {
@@ -2364,10 +2394,8 @@ motionnotify(XEvent *e)
 		return;
 	}
 
-	if (selmon->preview->show) {
-		selmon->preview->show = 0;
-		hidewspreview(selmon);
-	}
+	if (selmon->preview && selmon->preview->show)
+		hidepreview(selmon);
 
 	if (ev->window != root)
 		return;
@@ -2477,8 +2505,7 @@ propertynotify(XEvent *e)
 				arrange(c->ws);
 			break;
 		case XA_WM_NORMAL_HINTS:
-			updatesizehints(c);
-			arrange(c->ws);
+			addflag(c, RefreshSizeHints);
 			break;
 		case XA_WM_HINTS:
 			updatewmhints(c);
@@ -2508,28 +2535,14 @@ propertynotify(XEvent *e)
 void
 restart(const Arg *arg)
 {
-	Workspace *ws;
 	restartsig = 1;
-	quit(arg);
-
-	for (ws = workspaces; ws; ws = ws->next)
-		persistworkspacestate(ws);
-	persistworkspacestate(stickyws);
+	running = 0;
 }
 
 void
 quit(const Arg *arg)
 {
-	size_t i;
 	running = 0;
-
-	/* kill child processes */
-	for (i = 0; i < autostart_len; i++) {
-		if (0 < autostart_pids[i]) {
-			kill(autostart_pids[i], SIGTERM);
-			waitpid(autostart_pids[i], NULL, 0);
-		}
-	}
 }
 
 /* This reads the stacking order on the X server side and updates the client
@@ -2748,7 +2761,7 @@ scan(void)
 				manage(wins[i], &wa);
 		}
 		for (i = 0; i < num; i++) { /* now the transients */
-			if (!XGetWindowAttributes(dpy, wins[i], &wa))
+			if (!XGetWindowAttributes(dpy, wins[i], &wa) || wa.override_redirect)
 				continue;
 			if (XGetTransientForHint(dpy, wins[i], &d1)
 			&& (wa.map_state == IsViewable || getstate(wins[i]) == IconicState))
@@ -2927,6 +2940,7 @@ setlayout(const Arg *arg)
 	strncpy(ws->ltsymbol, ws->layout->symbol, sizeof ws->ltsymbol);
 
 	arrange(ws);
+	setfloatinghints(ws);
 }
 
 /* arg > 1.0 will set mfact absolutely */
@@ -2973,14 +2987,22 @@ setup(void)
 	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
 		die("no fonts could be loaded.");
 
+	/* init appearance */
+	scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
+	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], default_alphas, 3); // ad-hoc color scheme used by status2d
+
+	for (i = 0; i < LENGTH(colors); i++)
+		scheme[i] = drw_scm_create(drw, colors[i], default_alphas, 3);
+
+	if (enabled(Xresources))
+		loadxrdb();
+
 	lrpad = drw->fonts->h + horizpadbar;
 	bh = bar_height ? bar_height : drw->fonts->h + vertpadbar;
 
 	/* One off calculating workspace label widths, used by WorkspaceLabels functionality */
 	occupied_workspace_label_format_length = TEXT2DW(occupied_workspace_label_format) - TEXTW(workspace_label_placeholder) * 2;
 	vacant_workspace_label_format_length = TEXT2DW(vacant_workspace_label_format) - TEXTW(workspace_label_placeholder);
-	textw_single_char = TEXTW("A");
-
 
 	updategeom();
 
@@ -3051,7 +3073,7 @@ setup(void)
 	xatom[XembedInfo] = XInternAtom(dpy, "_XEMBED_INFO", False);
 	/* init cursors */
 	cursor[CurNormal] = drw_cur_create(drw, XC_left_ptr);
-	cursor[CurResize] = drw_cur_create(drw, XC_sizing);
+	cursor[CurResize] = drw_cur_create(drw, XC_rightbutton);
 	cursor[CurResizeBR] = drw_cur_create(drw, XC_bottom_right_corner);
 	cursor[CurResizeBL] = drw_cur_create(drw, XC_bottom_left_corner);
 	cursor[CurResizeTR] = drw_cur_create(drw, XC_top_right_corner);
@@ -3060,18 +3082,9 @@ setup(void)
 	cursor[CurResizeVertArrow] = drw_cur_create(drw, XC_sb_v_double_arrow);
 	cursor[CurIronCross] = drw_cur_create(drw, XC_iron_cross);
 	cursor[CurMove] = drw_cur_create(drw, XC_fleur);
+	cursor[CurSwallow] = drw_cur_create(drw, XC_target);
 
 	createworkspaces();
-	/* init appearance */
-	scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
-	scheme[LENGTH(colors)] = drw_scm_create(drw, colors[0], alphas[0], 3); // ad-hoc color scheme used by status2d
-
-	for (i = 0; i < LENGTH(colors); i++)
-		scheme[i] = drw_scm_create(drw, colors[i], alphas[i], 3);
-
-	if (enabled(Xresources))
-		loadxrdb();
-
 	updatebars();
 
 	/* supporting window for NetWMCheck */
@@ -3106,7 +3119,6 @@ setup(void)
 		showws(m->selws);
 	selws = selmon->selws;
 }
-
 
 void
 seturgent(Client *c, int urg)
@@ -3159,14 +3171,18 @@ skipfocusevents(void)
 void
 spawn(const Arg *arg)
 {
-	spawncmd(arg, 0);
+	spawncmd(arg, 0, 1);
 }
 
 pid_t
-spawncmd(const Arg *arg, int buttonclick)
+spawncmd(const Arg *arg, int buttonclick, int orphan)
 {
-	pid_t pid;
-	if ((pid = fork()) == 0) {
+	pid_t pid = fork();
+	if (pid == 0) {
+
+		if (orphan && fork() != 0)
+			exit(EXIT_SUCCESS);
+
 		if (dpy)
 			close(ConnectionNumber(dpy));
 		if (enabled(SpawnCwd) && selws->sel) {
@@ -3258,6 +3274,13 @@ structurenotify(XEvent *e)
 	}
 }
 
+static unsigned int
+textw_clamp(const char *str, unsigned int n)
+{
+	unsigned int w = drw_fontset_getwidth_clamp(drw, str, n);
+	return MIN(w, n);
+}
+
 void
 togglefloating(const Arg *arg)
 {
@@ -3346,6 +3369,7 @@ togglemaximize(Client *c, int maximize_vert, int maximize_horz)
 		setfloatpos(c, "0% -1y 100% -1h", 1);
 
 	resizeclient(c, c->x, c->y, c->w, c->h);
+	drawbar(ws->mon);
 }
 
 void
@@ -3383,14 +3407,15 @@ unmanage(Client *c, int destroyed)
 	ws = c->ws;
 	revertws = c->revertws;
 
-	if (c->swallowing)
-		unswallow(c);
-
-	s = swallowingclient(c->win);
+	s = swallowingparent(c->win);
 	if (s) {
-		s->swallowing = NULL;
+		s->swallowing = c->swallowing;
+		c->swallowing = NULL;
 		revertws = NULL;
 	}
+
+	if (c->swallowing)
+		unswallow(&((Arg) { .v = c }));
 
 	if (ISMARKED(c))
 		unmarkclient(c);
@@ -3406,6 +3431,7 @@ unmanage(Client *c, int destroyed)
 		wc.border_width = c->oldbw;
 		XGrabServer(dpy); /* avoid race conditions */
 		XSetErrorHandler(xerrordummy);
+		XSelectInput(dpy, c->win, NoEventMask);
 		XConfigureWindow(dpy, c->win, CWBorderWidth, &wc); /* restore border */
 		XUngrabButton(dpy, AnyButton, AnyModifier, c->win);
 		setclientstate(c, WithdrawnState);
@@ -3413,6 +3439,7 @@ unmanage(Client *c, int destroyed)
 		XSetErrorHandler(xerror);
 		XUngrabServer(dpy);
 	}
+
 	free(c);
 
 	updateclientlist();
@@ -3461,6 +3488,14 @@ unmapnotify(XEvent *e)
 			setclientstate(c, WithdrawnState);
 		else
 			unmanage(c, 0);
+	} else if ((c = swallowingparent(ev->window))) {
+		ws = c->ws;
+		if (enabled(Debug) || DEBUGGING(c))
+			fprintf(stderr, "unmapnotify: received event for swallowing client %s\n", c->name);
+		if (ev->send_event)
+			setclientstate(c, WithdrawnState);
+		else
+			unmanage(c->swallowing, 0);
 	} else if (enabled(Systray) && (c = wintosystrayicon(ev->window))) {
 		/* KLUDGE! sometimes icons occasionally unmap their windows, but do
 		 * _not_ destroy them. We map those windows back */
@@ -3513,37 +3548,37 @@ updategeom(void)
 		nn = j;
 		if (enabled(SortScreens))
 			sortscreens(unique, nn);
-		if (n <= nn) { /* new monitors available */
-			for (i = n; i < nn; i++) {
-				for (m = mons; m && m->next; m = m->next);
-				if (m)
-					m->next = createmon(i);
-				else
-					mons = createmon(i);
-			}
-			for (m = mons; m && m->num < nn; m = m->next) {
-				if (m->num >= n
-				|| unique[m->num].x_org != m->mx || unique[m->num].y_org != m->my
-				|| unique[m->num].width != m->mw || unique[m->num].height != m->mh)
-				{
-					dirty = 1;
-					m->mx = m->wx = unique[m->num].x_org;
-					m->my = m->wy = unique[m->num].y_org;
-					m->mw = m->ww = unique[m->num].width;
-					m->mh = m->wh = unique[m->num].height;
-					updatebarpos(m);
+
+		for (i = n; i < nn; i++) {
+			for (m = mons; m && m->next; m = m->next);
+			if (m)
+				m->next = createmon(i);
+			else
+				mons = createmon(i);
+		}
+		for (m = mons; m && m->num < nn; m = m->next) {
+			if (m->num >= n
+			|| unique[m->num].x_org != m->mx || unique[m->num].y_org != m->my
+			|| unique[m->num].width != m->mw || unique[m->num].height != m->mh)
+			{
+				dirty = 1;
+				m->mx = m->wx = unique[m->num].x_org;
+				m->my = m->wy = unique[m->num].y_org;
+				m->mw = m->ww = unique[m->num].width;
+				m->mh = m->wh = unique[m->num].height;
+				updatebarpos(m);
+				if (enabled(WorkspacePreview))
 					createpreview(m);
-				}
-				if (m->num >= n)
-					redistributeworkspaces(m);
 			}
-		} else { /* less monitors available nn < n */
-			for (i = nn; i < n; i++) {
-				for (m = mons; m && m->next; m = m->next);
-				if (m == selmon)
-					selmon = mons;
-				cleanupmon(m);
-			}
+			if (m->num >= n)
+				redistributeworkspaces(m);
+		}
+
+		for (i = nn; i < n; i++) {
+			for (m = mons; m && m->next; m = m->next);
+			if (m == selmon)
+				selmon = mons;
+			cleanupmon(m);
 		}
 		free(unique);
 	} else
@@ -3556,7 +3591,8 @@ updategeom(void)
 			mons->mw = mons->ww = sw;
 			mons->mh = mons->wh = sh;
 			updatebarpos(mons);
-			createpreview(mons);
+			if (enabled(WorkspacePreview))
+				createpreview(mons);
 		}
 	}
 	if (dirty) {
@@ -3623,6 +3659,7 @@ updatesizehints(Client *c)
 	} else
 		c->maxa = c->mina = 0.0;
 	setflag(c, Fixed, (c->maxw && c->maxh && c->maxw == c->minw && c->maxh == c->minh));
+	removeflag(c, RefreshSizeHints);
 }
 
 void
@@ -3798,9 +3835,9 @@ main(int argc, char *argv[])
 #endif /* __OpenBSD__ */
 	scan();
 	run();
-	if (restartsig)
-		execvp(argv[0], argv);
 	cleanup();
 	XCloseDisplay(dpy);
+	if (restartsig)
+		execvp(argv[0], argv);
 	return EXIT_SUCCESS;
 }

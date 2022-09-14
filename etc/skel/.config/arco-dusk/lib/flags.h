@@ -1,12 +1,12 @@
-static void addflag(Client *c, const unsigned long flag);
-static void setflag(Client *c, const unsigned long flag, const int value);
-static void removeflag(Client *c, const unsigned long flag);
-static void toggleflag(Client *c, const unsigned long flag);
+static void addflag(Client *c, const uint64_t flag);
+static void setflag(Client *c, const uint64_t flag, const int value);
+static void removeflag(Client *c, const uint64_t flag);
+static void toggleflag(Client *c, const uint64_t flag);
 static void toggleclientflag(const Arg *arg);
-static void toggleflagop(Client *c, const unsigned long flag, int op);
-static const unsigned long getflagbyname(const char *name);
+static void toggleflagop(Client *c, const uint64_t flag, int op);
+static const uint64_t getflagbyname(const char *name);
 
-static const unsigned long
+static const uint64_t
 	AlwaysOnTop = 0x1, // client window is intended to always display on top (even above floating windows)
 	Fixed = 0x2, // used when client has a fixed size where width equals height
 	Floating = 0x4, // the client is floating (i.e. not tiled)
@@ -31,6 +31,7 @@ static const unsigned long
 	AttachBelow = 3 << 18, // attach the client after the currently selected client
 	AttachAside = 4 << 18, // attach the client as the first client in the stack area
 	AttachBottom = 5 << 18, // attach the client at the end of the list
+	AttachFlag = 7 << 18, // used internally to test for the attach flags above
 	FlagPlaceholder0x200000 = 0x200000,
 	FlagPlaceholder0x400000 = 0x400000,
 	SwitchWorkspace = 0x800000, // automatically moves you to the workspace of the newly opened application
@@ -55,7 +56,7 @@ static const unsigned long
 	Lower = 0x40000000000, // place this window below all other windows, used when window is unmanaged
 	Raise = 0x80000000000, // place this window above all other windows, used when window is unmanaged
 	SkipTaskbar = 0x100000000000, // do not include the window title for this client on the bar
-	FlagPlaceholder0x200000000000 = 0x200000000000,
+	ReapplyRules = 0x200000000000, // allow the client to get rules re-applied once when the window title changes
 	FlagPlaceholder0x400000000000 = 0x400000000000,
 	FlagPlaceholder0x800000000000 = 0x800000000000,
 	FlagPlaceholder0x1000000000000 = 0x1000000000000,
@@ -65,9 +66,9 @@ static const unsigned long
 	FlagPlaceholder0x10000000000000 = 0x10000000000000,
 	FlagPlaceholder0x20000000000000 = 0x20000000000000,
 	FlagPlaceholder0x40000000000000 = 0x40000000000000,
-	FlagPlaceholder0x80000000000000 = 0x80000000000000,
-	/* Debug = 0x100000000000000,  // same name and value as debug functionality, see util.h */
 	/* Below are flags that are intended to only be used internally */
+	RefreshSizeHints = 0x80000000000000, // used internally to indicate that size hints for the window should be (re-)loaded
+	/* Debug = 0x100000000000000,  // same name and value as debug functionality, see util.h */
 	Invisible = 0x200000000000000, // by default all clients are visible, used by scratchpads to hide clients
 	/* Some clients (e.g. alacritty) helpfully send configure requests with a new size or position
 	 * when they detect that they have been moved to another monitor. This can cause visual glitches
@@ -107,12 +108,14 @@ static const unsigned long
 #define IGNOREPROPTRANSIENTFOR(C) (C && C->flags & IgnorePropTransientFor)
 #define IGNORESIZEHINTS(C) (C && C->flags & IgnoreSizeHints)
 #define IGNOREMINIMUMSIZEHINTS(C) (C && C->flags & IgnoreMinimumSizeHints)
+#define REFRESHSIZEHINTS(C) (C && C->flags & RefreshSizeHints)
 #define NEEDRESIZE(C) (C && C->flags & NeedResize)
 #define NEVERFOCUS(C) (C && C->flags & NeverFocus)
 #define NOBORDER(C) (C && C->flags & NoBorder)
 #define NOSWALLOW(C) (C && C->flags & NoSwallow)
 #define NOFOCUSONNETACTIVE(C) (C && C->flags & NoFocusOnNetActive)
 #define ONLYMODBUTTONS(C) (C && C->flags & OnlyModButtons)
+#define REAPPLYRULES(C) (C && C->flags & ReapplyRules)
 #define RESPECTSIZEHINTS(C) (C && C->flags & RespectSizeHints)
 #define RESTOREFAKEFULLSCREEN(C) (C && C->flags & RestoreFakeFullScreen)
 #define RIODRAWNOMATCHPID(C) (C && C->flags & RioDrawNoMatchPID)

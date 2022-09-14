@@ -21,7 +21,7 @@ static const int sidepad                 = borderpx;  /* horizontal (outer) padd
 static const int iconsize                = 16;  /* icon size */
 static const int iconspacing             = 5;   /* space between icon and title */
 
-static const int scalepreview            = 4;   /* size of workspace previews compared to monitor size */
+static const float pfact                 = 0.25; /* size of workspace previews relative to monitor size */
 
 static int floatposgrid_x                = 5;   /* float grid columns */
 static int floatposgrid_y                = 5;   /* float grid rows */
@@ -60,7 +60,7 @@ static char *vacant_workspace_label_format = "%s";       /* format of an empty /
 static int lowercase_workspace_labels = 1;               /* whether to change workspace labels to lower case */
 
 /* See util.h for options */
-static unsigned long functionality = 0
+static uint64_t functionality = 0
 //	|AutoReduceNmaster // automatically reduce the number of master clients if one is closed
 //	|SmartGaps // enables no or increased gaps if there is only one visible window
 //	|SmartGapsMonocle // enforces no gaps in monocle layout
@@ -109,19 +109,25 @@ static int flexwintitle_floatweight      = 0;  // floating window title weight, 
 static int flexwintitle_separator        = 0;  // width of client separator
 
 static const char *fonts[]               = { "monospace:size=10" };
-static const char dmenufont[]            = "monospace:size=10";
+static       char dmenufont[]            = "monospace:size=10";
 
 static char dmenunormfgcolor[] = "#C6BDBD";
 static char dmenunormbgcolor[] = "#180A13";
 static char dmenuselfgcolor[] = "#FFF7D4";
 static char dmenuselbgcolor[] = "#440000";
 
-static const unsigned int alphas[SchemeLast][3] = {
-	/*                       fg      bg      border */
-	[SchemeNorm]         = { OPAQUE, 0xd0,   OPAQUE },
+/* Xresources preferences to load at startup. */
+static const ResourcePref resources[] = {
+	{ "dmenu.norm.fg.color", STRING, &dmenunormfgcolor },
+	{ "dmenu.norm.bg.color", STRING, &dmenunormbgcolor },
+	{ "dmenu.sel.fg.color", STRING, &dmenuselfgcolor },
+	{ "dmenu.sel.bg.color", STRING, &dmenuselbgcolor },
+	{ "dmenu.font", STRING, &dmenufont },
 };
 
-static char *colors[SchemeLast][ColCount] = {
+unsigned int default_alphas[] = { OPAQUE, 0xd0U, OPAQUE };
+
+static char *colors[SchemeLast][4] = {
 	/*                       fg         bg         border     resource prefix */
 	[SchemeNorm]         = { "#BE89AE", "#180A13", "#444444", "norm" },
 	[SchemeSel]          = { "#FFF7D4", "#440000", "#440000", "sel" },
@@ -137,54 +143,54 @@ static char *colors[SchemeLast][ColCount] = {
 	[SchemeMarked]       = { "#615656", "#ECB820", "#ECB820", "marked" },
 	[SchemeScratchNorm]  = { "#FFF7D4", "#664C67", "#77547E", "scratchnorm" },
 	[SchemeScratchSel]   = { "#FFF7D4", "#77547E", "#894B9F", "scratchsel" },
-	[SchemeFlexActTTB]   = { "#FFF7D4", "#440000", "#440000", "actTTB" },
-	[SchemeFlexActLTR]   = { "#FFF7D4", "#440044", "#440044", "actLTR" },
-	[SchemeFlexActMONO]  = { "#FFF7D4", "#000044", "#000044", "actMONO" },
-	[SchemeFlexActGRID]  = { "#FFF7D4", "#004400", "#004400", "actGRID" },
-	[SchemeFlexActGRIDC] = { "#FFF7D4", "#004400", "#004400", "actGRIDC" },
-	[SchemeFlexActGRD1]  = { "#FFF7D4", "#004400", "#004400", "actGRD1" },
-	[SchemeFlexActGRD2]  = { "#FFF7D4", "#004400", "#004400", "actGRD2" },
-	[SchemeFlexActGRDM]  = { "#FFF7D4", "#507711", "#507711", "actGRDM" },
-	[SchemeFlexActHGRD]  = { "#FFF7D4", "#b97711", "#b97711", "actHGRD" },
-	[SchemeFlexActDWDL]  = { "#FFF7D4", "#004444", "#004444", "actDWDL" },
-	[SchemeFlexActDWDLC] = { "#FFF7D4", "#004444", "#004444", "actDWDLC" },
-	[SchemeFlexActSPRL]  = { "#FFF7D4", "#444400", "#444400", "actSPRL" },
-	[SchemeFlexActSPRLC] = { "#FFF7D4", "#444400", "#444400", "actSPRLC" },
-	[SchemeFlexActTTMI]  = { "#FFF7D4", "#B81616", "#B81616", "actTTMI" },
-	[SchemeFlexActTTMIC] = { "#FFF7D4", "#B81616", "#B81616", "actTTMIC" },
-	[SchemeFlexActFloat] = { "#FFF7D4", "#4C314C", "#4C314C", "actfloat" },
-	[SchemeFlexInaTTB]   = { "#C6BDBD", "#330000", "#330000", "normTTB" },
-	[SchemeFlexInaLTR]   = { "#C6BDBD", "#330033", "#330033", "normLTR" },
-	[SchemeFlexInaMONO]  = { "#C6BDBD", "#000033", "#000033", "normMONO" },
-	[SchemeFlexInaGRID]  = { "#C6BDBD", "#003300", "#003300", "normGRID" },
-	[SchemeFlexInaGRIDC] = { "#C6BDBD", "#003300", "#003300", "normGRIDC" },
-	[SchemeFlexInaGRD1]  = { "#C6BDBD", "#003300", "#003300", "normGRD1" },
-	[SchemeFlexInaGRD2]  = { "#C6BDBD", "#003300", "#003300", "normGRD2" },
-	[SchemeFlexInaGRDM]  = { "#C6BDBD", "#506600", "#506600", "normGRDM" },
-	[SchemeFlexInaHGRD]  = { "#C6BDBD", "#b96600", "#b96600", "normHGRD" },
-	[SchemeFlexInaDWDL]  = { "#C6BDBD", "#003333", "#003333", "normDWDL" },
-	[SchemeFlexInaDWDLC] = { "#C6BDBD", "#003333", "#003333", "normDWDLC" },
-	[SchemeFlexInaSPRL]  = { "#C6BDBD", "#333300", "#333300", "normSPRL" },
-	[SchemeFlexInaSPRLC] = { "#C6BDBD", "#333300", "#333300", "normSPRLC" },
-	[SchemeFlexInaTTMI]  = { "#C6BDBD", "#B32727", "#B32727", "normTTMI" },
-	[SchemeFlexInaTTMIC] = { "#C6BDBD", "#B32727", "#B32727", "normTTMIC" },
-	[SchemeFlexInaFloat] = { "#C6BDBD", "#4C314C", "#4C314C", "normfloat" },
-	[SchemeFlexSelTTB]   = { "#FFF7D4", "#550000", "#550000", "selTTB" },
-	[SchemeFlexSelLTR]   = { "#FFF7D4", "#550055", "#550055", "selLTR" },
-	[SchemeFlexSelMONO]  = { "#FFF7D4", "#212171", "#212171", "selMONO" },
-	[SchemeFlexSelGRID]  = { "#FFF7D4", "#005500", "#005500", "selGRID" },
-	[SchemeFlexSelGRIDC] = { "#FFF7D4", "#005500", "#005500", "selGRIDC" },
-	[SchemeFlexSelGRD1]  = { "#FFF7D4", "#005500", "#005500", "selGRD1" },
-	[SchemeFlexSelGRD2]  = { "#FFF7D4", "#005500", "#005500", "selGRD2" },
-	[SchemeFlexSelGRDM]  = { "#FFF7D4", "#508822", "#508822", "selGRDM" },
-	[SchemeFlexSelHGRD]  = { "#FFF7D4", "#b98822", "#b98822", "selHGRD" },
-	[SchemeFlexSelDWDL]  = { "#FFF7D4", "#005555", "#005555", "selDWDL" },
-	[SchemeFlexSelDWDLC] = { "#FFF7D4", "#005555", "#005555", "selDWDLC" },
-	[SchemeFlexSelSPRL]  = { "#FFF7D4", "#555500", "#555500", "selSPRL" },
-	[SchemeFlexSelSPRLC] = { "#FFF7D4", "#555500", "#555500", "selSPRLC" },
-	[SchemeFlexSelTTMI]  = { "#FFF7D4", "#C91717", "#C91717", "selTTMI" },
-	[SchemeFlexSelTTMIC] = { "#FFF7D4", "#C91717", "#C91717", "selTTMIC" },
-	[SchemeFlexSelFloat] = { "#FFF7D4", "#5C415C", "#5C415C", "selfloat" },
+	[SchemeFlexActTTB]   = { "#FFF7D4", "#440000", "#440000", "act.TTB" },
+	[SchemeFlexActLTR]   = { "#FFF7D4", "#440044", "#440044", "act.LTR" },
+	[SchemeFlexActMONO]  = { "#FFF7D4", "#000044", "#000044", "act.MONO" },
+	[SchemeFlexActGRID]  = { "#FFF7D4", "#004400", "#004400", "act.GRID" },
+	[SchemeFlexActGRIDC] = { "#FFF7D4", "#004400", "#004400", "act.GRIDC" },
+	[SchemeFlexActGRD1]  = { "#FFF7D4", "#004400", "#004400", "act.GRD1" },
+	[SchemeFlexActGRD2]  = { "#FFF7D4", "#004400", "#004400", "act.GRD2" },
+	[SchemeFlexActGRDM]  = { "#FFF7D4", "#507711", "#507711", "act.GRDM" },
+	[SchemeFlexActHGRD]  = { "#FFF7D4", "#b97711", "#b97711", "act.HGRD" },
+	[SchemeFlexActDWDL]  = { "#FFF7D4", "#004444", "#004444", "act.DWDL" },
+	[SchemeFlexActDWDLC] = { "#FFF7D4", "#004444", "#004444", "act.DWDLC" },
+	[SchemeFlexActSPRL]  = { "#FFF7D4", "#444400", "#444400", "act.SPRL" },
+	[SchemeFlexActSPRLC] = { "#FFF7D4", "#444400", "#444400", "act.SPRLC" },
+	[SchemeFlexActTTMI]  = { "#FFF7D4", "#B81616", "#B81616", "act.TTMI" },
+	[SchemeFlexActTTMIC] = { "#FFF7D4", "#B81616", "#B81616", "act.TTMIC" },
+	[SchemeFlexActFloat] = { "#FFF7D4", "#4C314C", "#4C314C", "act.float" },
+	[SchemeFlexInaTTB]   = { "#C6BDBD", "#330000", "#330000", "norm.TTB" },
+	[SchemeFlexInaLTR]   = { "#C6BDBD", "#330033", "#330033", "norm.LTR" },
+	[SchemeFlexInaMONO]  = { "#C6BDBD", "#000033", "#000033", "norm.MONO" },
+	[SchemeFlexInaGRID]  = { "#C6BDBD", "#003300", "#003300", "norm.GRID" },
+	[SchemeFlexInaGRIDC] = { "#C6BDBD", "#003300", "#003300", "norm.GRIDC" },
+	[SchemeFlexInaGRD1]  = { "#C6BDBD", "#003300", "#003300", "norm.GRD1" },
+	[SchemeFlexInaGRD2]  = { "#C6BDBD", "#003300", "#003300", "norm.GRD2" },
+	[SchemeFlexInaGRDM]  = { "#C6BDBD", "#506600", "#506600", "norm.GRDM" },
+	[SchemeFlexInaHGRD]  = { "#C6BDBD", "#b96600", "#b96600", "norm.HGRD" },
+	[SchemeFlexInaDWDL]  = { "#C6BDBD", "#003333", "#003333", "norm.DWDL" },
+	[SchemeFlexInaDWDLC] = { "#C6BDBD", "#003333", "#003333", "norm.DWDLC" },
+	[SchemeFlexInaSPRL]  = { "#C6BDBD", "#333300", "#333300", "norm.SPRL" },
+	[SchemeFlexInaSPRLC] = { "#C6BDBD", "#333300", "#333300", "norm.SPRLC" },
+	[SchemeFlexInaTTMI]  = { "#C6BDBD", "#B32727", "#B32727", "norm.TTMI" },
+	[SchemeFlexInaTTMIC] = { "#C6BDBD", "#B32727", "#B32727", "norm.TTMIC" },
+	[SchemeFlexInaFloat] = { "#C6BDBD", "#4C314C", "#4C314C", "norm.float" },
+	[SchemeFlexSelTTB]   = { "#FFF7D4", "#550000", "#550000", "sel.TTB" },
+	[SchemeFlexSelLTR]   = { "#FFF7D4", "#550055", "#550055", "sel.LTR" },
+	[SchemeFlexSelMONO]  = { "#FFF7D4", "#212171", "#212171", "sel.MONO" },
+	[SchemeFlexSelGRID]  = { "#FFF7D4", "#005500", "#005500", "sel.GRID" },
+	[SchemeFlexSelGRIDC] = { "#FFF7D4", "#005500", "#005500", "sel.GRIDC" },
+	[SchemeFlexSelGRD1]  = { "#FFF7D4", "#005500", "#005500", "sel.GRD1" },
+	[SchemeFlexSelGRD2]  = { "#FFF7D4", "#005500", "#005500", "sel.GRD2" },
+	[SchemeFlexSelGRDM]  = { "#FFF7D4", "#508822", "#508822", "sel.GRDM" },
+	[SchemeFlexSelHGRD]  = { "#FFF7D4", "#b98822", "#b98822", "sel.HGRD" },
+	[SchemeFlexSelDWDL]  = { "#FFF7D4", "#005555", "#005555", "sel.DWDL" },
+	[SchemeFlexSelDWDLC] = { "#FFF7D4", "#005555", "#005555", "sel.DWDLC" },
+	[SchemeFlexSelSPRL]  = { "#FFF7D4", "#555500", "#555500", "sel.SPRL" },
+	[SchemeFlexSelSPRLC] = { "#FFF7D4", "#555500", "#555500", "sel.SPRLC" },
+	[SchemeFlexSelTTMI]  = { "#FFF7D4", "#C91717", "#C91717", "sel.TTMI" },
+	[SchemeFlexSelTTMIC] = { "#FFF7D4", "#C91717", "#C91717", "sel.TTMIC" },
+	[SchemeFlexSelFloat] = { "#FFF7D4", "#5C415C", "#5C415C", "sel.float" },
 };
 
 static const char *const autostart[] = {
@@ -427,7 +433,6 @@ static const Layout layouts[] = {
 	{ "(@)",      flextile,         { -1, -1, NO_SPLIT, SPIRAL_CFACTS, SPIRAL_CFACTS, 0, NULL } }, // fibonacci spiral
 	{ "[T]",      flextile,         { -1, -1, SPLIT_VERTICAL, LEFT_TO_RIGHT, TATAMI_CFACTS, 0, NULL } }, // tatami mats
  	{ "><>",      NULL,             {0} },    /* no layout function means floating behavior */
-	{ NULL,       NULL,             {0} },    /* end of layouts marker for cyclelayouts */
 };
 
 #define Shift ShiftMask
@@ -447,11 +452,12 @@ static const Layout layouts[] = {
 
 #define WSKEYS(MOD,KEY,NAME) \
 	{ KeyPress,   MOD,                      KEY,      comboviewwsbyname,   {.v = NAME} }, \
+	{ KeyPress,   MOD|Alt,                  KEY,      enablewsbyname,      {.v = NAME} }, \
 	{ KeyPress,   MOD|Shift,                KEY,      movetowsbyname,      {.v = NAME} }, \
+	{ KeyPress,   MOD|Ctrl,                 KEY,      sendtowsbyname,      {.v = NAME} }, \
 	{ KeyPress,   MOD|Ctrl|Shift,           KEY,      movealltowsbyname,   {.v = NAME} }, \
 	{ KeyPress,   MOD|Ctrl|Alt,             KEY,      moveallfromwsbyname, {.v = NAME} }, \
-	{ KeyPress,   MOD|Ctrl,                 KEY,      swapwsbyname,        {.v = NAME} }, \
-	{ KeyPress,   MOD|Alt,                  KEY,      enablewsbyname,      {.v = NAME} }, \
+	{ KeyPress,   MOD|Ctrl|Alt|Shift,       KEY,      swapwsbyname,        {.v = NAME} }, \
 
 #define STACKKEYS(MOD,ACTION) \
 	{ KeyPress,   MOD, XK_j, ACTION, {.i = INC(+1) } }, \
@@ -638,6 +644,8 @@ static Key keys[] = {
 //	{ KeyPress,   MODKEY,                       XK_,             switchcol,              {0} }, // changes focus between the master and the primary stack area
 //	{ KeyPress,   MODKEY,                       XK_,             setlayout,              {.v = &layouts[0]} }, // sets a specific layout, see the layouts array for indices
 //	{ KeyPress,   MODKEY,                       XK_,             xrdb,                   {0 } }, // reloads colors from XResources
+//	{ KeyPress,   MODKEY,                       XK_,             swallow,                {0} }, // makes the focused client swallow marked clients
+//	{ KeyPress,   MODKEY,                       XK_,             unswallow,              {0} }, // makes the focused client unswallow the most recently swallowed client
 };
 
 /* button definitions */
@@ -667,7 +675,7 @@ static Button buttons[] = {
 	{ ClkClientWin,              MODKEY,                  Button1,        moveorplace,      {1} }, // moves a client window into a floating or tiled position depending on floating state
 	{ ClkClientWin,              MODKEY|Shift,            Button1,        movemouse,        {0} }, // moves a floating window, if the window is tiled then it will snap out to become floating
 	{ ClkClientWin,              MODKEY|Alt,              Button2,        togglefloating,   {0} }, // toggles between tiled and floating arrangement for given client
-	{ ClkClientWin,              MODKEY,                  Button3,        resizeorcfacts,   {0} }, // change the size of a floating client window or adjust cfacts (dragcfact) when tiled
+	{ ClkClientWin,              MODKEY,                  Button3,        resizeorfacts,    {0} }, // change the size of a floating client window or adjust cfacts and mfacts when tiled
 	{ ClkClientWin,              MODKEY|Shift,            Button3,        resizemouse,      {0} }, // change the size of a floating client window
 	{ ClkClientWin,              0,                       Button8,        movemouse,        {0} }, // move a client window using extra mouse buttons (previous)
 	{ ClkClientWin,              0,                       Button9,        resizemouse,      {0} }, // resize a client window using extra mouse buttons (next)
@@ -722,6 +730,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( markall, ARG_TYPE_SINT ), // 0 = mark all, 1 = mark floating, 2 = mark hidden
 	IPCCOMMAND( mirrorlayout, ARG_TYPE_NONE ),
 	IPCCOMMAND( movetowsbyname, ARG_TYPE_STR ),
+	IPCCOMMAND( sendtowsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( movealltowsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( moveallfromwsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( movewsdir, ARG_TYPE_SINT ),
@@ -746,11 +755,13 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( showhideclient, ARG_TYPE_NONE ),
 	IPCCOMMAND( stackpush, ARG_TYPE_SINT ),
 	IPCCOMMAND( stackfocus, ARG_TYPE_SINT ),
+	IPCCOMMAND( swallow, ARG_TYPE_NONE ),
 	IPCCOMMAND( switchcol, ARG_TYPE_NONE ),
 	IPCCOMMAND( swapwsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( toggle, ARG_TYPE_STR ), // toggle functionality on and off
 	IPCCOMMAND( togglebar, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglebarpadding, ARG_TYPE_NONE ),
+	IPCCOMMAND( togglecompact, ARG_TYPE_NONE ),
 	IPCCOMMAND( toggleclientflag, ARG_TYPE_STR ),
 	IPCCOMMAND( togglefakefullscreen, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglefloating, ARG_TYPE_NONE ),
@@ -765,6 +776,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( unfloatvisible, ARG_TYPE_NONE ),
 	IPCCOMMAND( unmark, ARG_TYPE_NONE ),
 	IPCCOMMAND( unmarkall, ARG_TYPE_NONE ),
+	IPCCOMMAND( unswallow, ARG_TYPE_NONE ),
 	IPCCOMMAND( viewallwsonmon, ARG_TYPE_NONE ),
 	IPCCOMMAND( viewalloccwsonmon, ARG_TYPE_NONE ),
 	IPCCOMMAND( viewselws, ARG_TYPE_NONE ),

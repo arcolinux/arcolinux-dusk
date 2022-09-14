@@ -10,7 +10,7 @@ atomin(Atom input, Atom *list, int nitems)
 void
 persistworkspacestate(Workspace *ws)
 {
-	Client *c;
+	Client *c, *s;
 	unsigned int i;
 
 	/* Fill flextile attributes if arrange method is NULL (floating layout) */
@@ -33,7 +33,7 @@ persistworkspacestate(Workspace *ws)
 	 *    | |-- mirror layout (indicated by negative ws->ltaxis[LAYOUT])
 	 *    |-- ws->enablegaps
 	 */
-	unsigned long data[] = {
+	uint32_t data[] = {
 		(ws->visible & 0x1) |
 		(ws->pinned & 0x1) << 1 |
 		(ws->nmaster & 0x7) << 2 |
@@ -64,12 +64,15 @@ persistworkspacestate(Workspace *ws)
 		setclientfields(c);
 		setclientlabel(c);
 		savewindowfloatposition(c, c->ws->mon);
-		if (c->swallowing) {
-			c->swallowing->idx = i;
-			setclientflags(c->swallowing);
-			setclientfields(c->swallowing);
-			setclientlabel(c->swallowing);
-			savewindowfloatposition(c->swallowing, c->swallowing->ws->mon);
+
+		s = c->swallowing;
+		while (s) {
+			s->idx = i;
+			setclientflags(s);
+			setclientfields(s);
+			setclientlabel(s);
+			savewindowfloatposition(s, s->ws->mon);
+			s = s->swallowing;
 		}
 	}
 
@@ -84,11 +87,11 @@ savewindowfloatposition(Client *c, Monitor *m)
 		return;
 
 	sprintf(atom, "_DUSK_FLOATPOS_%u", m->num);
-	unsigned long pos[] = { (MAX(c->sfx - m->mx, 0) & 0xffff) | ((MAX(c->sfy - m->my, 0) & 0xffff) << 16) };
+	uint32_t pos[] = { (MAX(c->sfx - m->mx, 0) & 0xffff) | ((MAX(c->sfy - m->my, 0) & 0xffff) << 16) };
 	XChangeProperty(dpy, c->win, XInternAtom(dpy, atom, False), XA_CARDINAL, 32, PropModeReplace, (unsigned char *)pos, 1);
 
 	sprintf(atom, "_DUSK_FLOATSIZE_%u", m->num);
-	unsigned long size[] = { (c->sfw & 0xffff) | ((c->sfh & 0xffff) << 16) };
+	uint32_t size[] = { (c->sfw & 0xffff) | ((c->sfh & 0xffff) << 16) };
 	XChangeProperty(dpy, c->win, XInternAtom(dpy, atom, False), XA_CARDINAL, 32, PropModeReplace, (unsigned char *)size, 1);
 
 	XSync(dpy, False);
@@ -158,15 +161,23 @@ setdesktopnames(void)
 void
 setfloatinghint(Client *c)
 {
-	unsigned int floating[1] = {ISFLOATING(c) ? 1 : 0};
+	unsigned int floating[1] = {ISFLOATING(c) || !c->ws->layout->arrange ? 1 : 0};
 	XChangeProperty(dpy, c->win, clientatom[IsFloating], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)floating, 1);
+}
+
+void
+setfloatinghints(Workspace *ws)
+{
+	Client *c;
+	for (c = ws->clients; c; c = c->next)
+		setfloatinghint(c);
 }
 
 void
 setclientflags(Client *c)
 {
-	unsigned long data1[] = { c->flags & 0xFFFFFFFF };
-	unsigned long data2[] = { c->flags >> 32 };
+	uint32_t data1[] = { c->flags & 0xFFFFFFFF };
+	uint32_t data2[] = { c->flags >> 32 };
 	XChangeProperty(dpy, c->win, clientatom[DuskClientFlags], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data1, 1);
 	XChangeProperty(dpy, c->win, clientatom[DuskClientFlags], XA_CARDINAL, 32, PropModeAppend,  (unsigned char *)data2, 1);
 }
@@ -174,7 +185,7 @@ setclientflags(Client *c)
 void
 setclientfields(Client *c)
 {
-	unsigned long data[] = { c->ws->num | (c->idx << 6) | (c->scratchkey << 14)};
+	uint32_t data[] = { c->ws->num | (c->idx << 6) | (c->scratchkey << 14)};
 	XChangeProperty(dpy, c->win, clientatom[DuskClientFields], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)data, 1);
 }
 
@@ -188,7 +199,8 @@ void
 getclientflags(Client *c)
 {
 	int di;
-	unsigned long dl, nitems, flags1 = 0, flags2 = 0;
+	unsigned long dl, nitems;
+	uint64_t flags1 = 0, flags2 = 0;
 	unsigned char *p = NULL;
 	Atom da = None;
 	Atom *cflags;
@@ -269,15 +281,7 @@ getworkspacestate(Workspace *ws)
 
 	if (!(XGetWindowProperty(dpy, root, clientatom[DuskWorkspace], ws->num, LENGTH(wsrules) * sizeof dl,
 			False, AnyPropertyType, &da, &di, &nitems, &dl, &p) == Success && p)) {
-		/* Temporary code to allow live restart from previous atom properties */
-		char atom[22] = {0};
-		sprintf(atom, "_DUSK_WORKSPACE_%u", ws->num == LENGTH(wsrules) ? 4096 : ws->num);
-		Atom wsatom = XInternAtom(dpy, atom, False);
-		if (!(XGetWindowProperty(dpy, root, wsatom, 0L, sizeof settings, False, AnyPropertyType,
-			&da, &di, &nitems, &dl, &p) == Success && p)) {
-			return;
-		}
-		/* End temporary code */
+		return;
 	}
 
 	if (nitems) {

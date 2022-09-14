@@ -84,7 +84,7 @@ draw_workspaces(Bar *bar, BarArg *a)
 				}
 				icon = label;
 			}
-			drw_2dtext(drw, x, y, w, h, padding / 2, icon, inv, False, 1, wsscheme);
+			drw_2dtext(drw, x, y, w, h, padding / 2, icon, inv, 1, wsscheme);
 
 			if (plw && nextws)
 				drw_arrow(drw, x + w, y, plw, h, a->value, scheme[wsscheme][ColBg], scheme[nextscheme][ColBg], scheme[SchemeNorm][ColBg]);
@@ -156,12 +156,18 @@ click_workspaces(Bar *bar, Arg *arg, BarArg *a)
 int
 hover_workspaces(Bar *bar, BarArg *a, XMotionEvent *ev)
 {
+	if (disabled(WorkspacePreview))
+		return 0;
+
 	Client *c;
 	Workspace *ws;
 	Monitor *m = bar->mon;
 	int x, y, w, s = 0, t = (bar->vert ? a->y : a->x);
 	int plw = (bar->vert ? 0 : a->value ? drw->fonts->h / 2 + 1 : 0);
 	int padding = lrpad - plw;
+
+	if (!m->preview)
+		createpreview(m);
 
 	/* This avoids clicks to the immediate left of the leftmost workspace (e.g. 2) to evaluate
 	 * as workspace 1 (which can be on a different monitor). */
@@ -189,37 +195,37 @@ hover_workspaces(Bar *bar, BarArg *a, XMotionEvent *ev)
 	} while (t >= s && (ws = ws->next));
 
 	if (!ws) {
-		hidewspreview(m);
+		hidepreview(m);
 		return 0;
 	}
 
 	if (bar->vert) {
 		if (bar->bx > m->mx + m->mw / 2) // right bar
-			x = bar->bx - m->mw / scalepreview - gappov;
+			x = bar->bx - m->mw * pfact - gappov;
 		else // left bar
 			x = bar->bx + bar->bw + gappov;
-		y = bar->by + ev->y - m->mh / scalepreview / 2;
-		if (y + m->mh / scalepreview > m->wy + m->wh)
-			y = m->wy + m->wh - m->mh / scalepreview - gappoh;
+		y = bar->by + ev->y - m->mh * pfact / 2;
+		if (y + m->mh * pfact > m->wy + m->wh)
+			y = m->wy + m->wh - m->mh * pfact - gappoh;
 		else if (y < bar->by)
 			y = m->wy + gappoh;
 	} else {
 		if (bar->by > m->my + m->mh / 2) // bottom bar
-			y = bar->by - m->mh / scalepreview - gappoh;
+			y = bar->by - m->mh * pfact - gappoh;
 		else // top bar
 			y = bar->by + bar->bh + gappoh;
-		x = bar->bx + ev->x - m->mw / scalepreview / 2;
-		if (x + m->mw / scalepreview > m->mx + m->mw)
-			x = m->wx + m->ww - m->mw / scalepreview - gappov;
+		x = bar->bx + ev->x - m->mw * pfact / 2;
+		if (x + m->mw * pfact > m->mx + m->mw)
+			x = m->wx + m->ww - m->mw * pfact - gappov;
 		else if (x < bar->bx)
 			x = m->wx + gappov;
 	}
 
 	if (m->preview->show != (ws->num + 1) && m->selws != ws) {
 		m->preview->show = ws->num + 1;
-		showwspreview(ws, x, y);
+		showpreview(ws, x, y);
 	} else if (m->selws == ws)
-		hidewspreview(m);
+		hidepreview(m);
 
 	return 1;
 }
@@ -264,7 +270,7 @@ Client *
 firsttiled(Workspace *ws)
 {
 	Client *c;
-	for (c = ws->clients; c && (ISFLOATING(c) || ISINVISIBLE(c)); c = c->next);
+	for (c = ws->clients; c && (ISFLOATING(c) || ISINVISIBLE(c) || HIDDEN(c)); c = c->next);
 	if (!c)
 		for (c = ws->stack; c && ISINVISIBLE(c); c = c->snext);
 	return c;

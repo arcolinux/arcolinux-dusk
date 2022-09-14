@@ -150,7 +150,7 @@ drawbarwin(Bar *bar)
 	else if (enabled(BarMasterGroupBorderColor) && bar->mon->selws)
 		bar->scheme = clientscheme(bar->mon->selws->clients, NULL);
 	else
-		bar->scheme = SchemeTitleNorm;
+		bar->scheme = SchemeNorm;
 
 	if (bar->borderpx) {
 		XSetForeground(drw->dpy, drw->gc, scheme[bar->scheme][ColBorder].pixel);
@@ -655,6 +655,27 @@ togglebarpadding(const Arg *arg)
 		drawbar(m);
 		arrangemon(m);
 	}
+}
+
+void
+togglecompact(const Arg *arg)
+{
+	Bar *bar;
+	Monitor *m;
+	Workspace *ws;
+	int gaps = 1, px = enabled(BarBorder) ? borderpx : 0;
+
+	if (enabled(BarPadding))
+		gaps = px = 0;
+
+	for (ws = workspaces; ws; ws = ws->next)
+		ws->enablegaps = gaps;
+
+	for (m = mons; m; m = m->next)
+		for (bar = m->bar; bar; bar = bar->next)
+			bar->borderpx = px;
+
+	togglebarpadding(arg);
 }
 
 Bar *
