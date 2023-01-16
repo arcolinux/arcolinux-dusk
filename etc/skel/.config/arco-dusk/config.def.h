@@ -504,7 +504,6 @@ static Key keys[] = {
 	{ KeyPress,   MODKEY,                       XK_x,            spawn,                  {.v = logout } }, // archlinux-logout
 	{ KeyPress,   MODKEY|Shift,                 XK_r,            restart,                {0} }, // restart dusk
 	{ KeyPress,   MODKEY|Shift,                 XK_q,            killclient,             {0} }, // close the currently focused window
-	{ KeyPress,   MODKEY,                       XK_d,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
 	{ KeyPress,   MODKEY,                       XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
 	{ KeyPress,   MODKEY|ControlMask|Shift,     XK_Return,       riospawn,               {.v = termcmd } }, // draw/spawn a terminal
 	{ KeyPress,   MODKEY,                       XK_b,            togglebar,              {0} }, // toggles the display of the bar(s) on the current monitor
