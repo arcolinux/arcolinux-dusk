@@ -55,9 +55,11 @@ static char *custom_2d_indicator_5 = "^c#CB9700^^r0,h,w,1^^r0,0,w,1^"; // top an
 static char *custom_2d_indicator_6 = "^c#F0A523^^r6,2,1,-4^^r-6,2,1,-4^"; // orange vertical bars
 
 /* The below are only used if the WorkspaceLabels functionality is enabled */
-static char *occupied_workspace_label_format = "%s: %s"; /* format of a workspace label */
-static char *vacant_workspace_label_format = "%s";       /* format of an empty / vacant workspace */
-static int lowercase_workspace_labels = 1;               /* whether to change workspace labels to lower case */
+static char *occupied_workspace_label_format = "%s: %s";  /* format of a workspace label */
+static char *vacant_workspace_label_format = "%s";        /* format of an empty / vacant workspace */
+static int lowercase_workspace_labels = 1;                /* whether to change workspace labels to lower case */
+static int prefer_window_icons_over_workspace_labels = 0; /* whether to use window icons instead of labels if present */
+static int swap_occupied_workspace_label_format_strings = 0; /* 0 gives "icon: label", 1 gives "label: icon" */
 
 /* See util.h for options */
 static uint64_t functionality = 0
@@ -193,11 +195,16 @@ static char *colors[SchemeLast][4] = {
 	[SchemeFlexSelFloat] = { "#FFF7D4", "#5C415C", "#5C415C", "sel.float" },
 };
 
+/* List of programs to start automatically during startup only. Note that these will not be
+ * executed again when doing a restart. */
 static const char *const autostart[] = {
-	/*"st", NULL,
-	"thunar", NULL,*/
-	"arcolinux-autostart-dusk", NULL, // apps to start /usr/share/local/bin
-	NULL /* terminate */
+	"arcolinux-autostart-dusk",
+};
+
+/* List of programs to start automatically during a restart only. These should usually be short
+ * scripts that perform specific operations, e.g. changing a wallpaper. */
+static const char *const autorestart[] = {
+	"arcolinux-autostart-dusk",
 };
 
 /* There are two options when it comes to per-client rules:
@@ -250,8 +257,8 @@ static const Rule clientrules[] = {
 	{ .instance = "spfm (r)", .scratchkey = 'r', .flags = Floating },
 	/* { .class = "Gimp", .workspace = "5", .flags = Floating|SwitchWorkspace },
 	{ .class = "firefox", .workspace = "8", .flags = AttachMaster|SwitchWorkspace },*/
-	{ .class = "Steam", .flags = IgnoreCfgReqPos|Floating|Centered },
-	{ .class = "steam_app_", .flags = SteamGame|IgnoreCfgReqPos|Floating|Centered },
+	{ .class = "Steam", .flags = Floating|Centered },
+	{ .class = "steam_app_", .flags = SteamGame|Floating|Centered },
 	{ .class = "Google-chrome", .role = "GtkFileChooserDialog", .floatpos = "50% 50%", .flags = AlwaysOnTop|Floating },
 	{ .role = "pop-up", .flags = AlwaysOnTop|Floating|Centered },
 	/*{ .role = "browser", .workspace = "8", .flags = AttachBelow|OnlyModButtons|SwitchWorkspace },*/
@@ -415,24 +422,24 @@ static const int enablegaps  = 1;    /* whether gaps are enabled by default or n
 
 /* layout(s) */
 static const Layout layouts[] = {
-	/* symbol     arrange function, { nmaster, nstack, layout, master axis, stack axis, secondary stack axis, symbol func } */
-	{ "[]=",      flextile,         { -1, -1, SPLIT_VERTICAL, TOP_TO_BOTTOM, TOP_TO_BOTTOM, 0, NULL } }, // default tile layout
-	{ "|||",      flextile,         { -1, -1, NO_SPLIT, LEFT_TO_RIGHT, LEFT_TO_RIGHT, 0, NULL } }, // columns
-	{ "===",      flextile,         { -1, -1, NO_SPLIT, TOP_TO_BOTTOM, TOP_TO_BOTTOM, 0, NULL } }, // rows
-	{ "[M]",      flextile,         { -1, -1, NO_SPLIT, MONOCLE, MONOCLE, 0, NULL } }, // monocle
-	{ "||=",      flextile,         { -1, -1, SPLIT_VERTICAL, LEFT_TO_RIGHT, TOP_TO_BOTTOM, 0, NULL } }, // columns (col) layout
-	{ ">M>",      flextile,         { -1, -1, FLOATING_MASTER, LEFT_TO_RIGHT, LEFT_TO_RIGHT, 0, NULL } }, // floating master
-	{ "[D]",      flextile,         { -1, -1, SPLIT_VERTICAL, TOP_TO_BOTTOM, MONOCLE, 0, NULL } }, // deck
-	{ "TTT",      flextile,         { -1, -1, SPLIT_HORIZONTAL, LEFT_TO_RIGHT, LEFT_TO_RIGHT, 0, NULL } }, // bstack
-	{ "===",      flextile,         { -1, -1, SPLIT_HORIZONTAL, LEFT_TO_RIGHT, TOP_TO_BOTTOM, 0, NULL } }, // bstackhoriz
-	{ "==#",      flextile,         { -1, -1, SPLIT_HORIZONTAL, TOP_TO_BOTTOM, GAPPLESSGRID_CFACTS, 0, NULL } }, // bstackgrid
-	{ "|M|",      flextile,         { -1, -1, SPLIT_CENTERED_VERTICAL, LEFT_TO_RIGHT, TOP_TO_BOTTOM, TOP_TO_BOTTOM, NULL } }, // centeredmaster
-	{ "-M-",      flextile,         { -1, -1, SPLIT_CENTERED_HORIZONTAL, TOP_TO_BOTTOM, LEFT_TO_RIGHT, LEFT_TO_RIGHT, NULL } }, // centeredmaster horiz
-	{ ":::",      flextile,         { -1, -1, NO_SPLIT, GAPPLESSGRID_CFACTS, GAPPLESSGRID_CFACTS, 0, NULL } }, // gappless grid
-	{ "[\\]",     flextile,         { -1, -1, NO_SPLIT, DWINDLE_CFACTS, DWINDLE_CFACTS, 0, NULL } }, // fibonacci dwindle
-	{ "(@)",      flextile,         { -1, -1, NO_SPLIT, SPIRAL_CFACTS, SPIRAL_CFACTS, 0, NULL } }, // fibonacci spiral
-	{ "[T]",      flextile,         { -1, -1, SPLIT_VERTICAL, LEFT_TO_RIGHT, TATAMI_CFACTS, 0, NULL } }, // tatami mats
- 	{ "><>",      NULL,             {0} },    /* no layout function means floating behavior */
+	/* symbol     arrange function, { nmaster, nstack, layout, master axis, stack axis, secondary stack axis, symbol func }, name */
+	{ "[]=",      flextile,         { -1, -1, SPLIT_VERTICAL, TOP_TO_BOTTOM, TOP_TO_BOTTOM, 0, NULL }, "tile" },
+	{ "|||",      flextile,         { -1, -1, NO_SPLIT, LEFT_TO_RIGHT, LEFT_TO_RIGHT, 0, NULL }, "columns" },
+	{ "===",      flextile,         { -1, -1, NO_SPLIT, TOP_TO_BOTTOM, TOP_TO_BOTTOM, 0, NULL }, "rows" },
+	{ "[M]",      flextile,         { -1, -1, NO_SPLIT, MONOCLE, MONOCLE, 0, NULL }, "monocle" },
+	{ "||=",      flextile,         { -1, -1, SPLIT_VERTICAL, LEFT_TO_RIGHT, TOP_TO_BOTTOM, 0, NULL }, "col" },
+	{ ">M>",      flextile,         { -1, -1, FLOATING_MASTER, LEFT_TO_RIGHT, LEFT_TO_RIGHT, 0, NULL }, "floating master" },
+	{ "[D]",      flextile,         { -1, -1, SPLIT_VERTICAL, TOP_TO_BOTTOM, MONOCLE, 0, NULL }, "deck" },
+	{ "TTT",      flextile,         { -1, -1, SPLIT_HORIZONTAL, LEFT_TO_RIGHT, LEFT_TO_RIGHT, 0, NULL }, "bstack" },
+	{ "===",      flextile,         { -1, -1, SPLIT_HORIZONTAL, LEFT_TO_RIGHT, TOP_TO_BOTTOM, 0, NULL }, "bstackhoriz" },
+	{ "==#",      flextile,         { -1, -1, SPLIT_HORIZONTAL, TOP_TO_BOTTOM, GAPPLESSGRID_CFACTS, 0, NULL }, "bstackgrid" },
+	{ "|M|",      flextile,         { -1, -1, SPLIT_CENTERED_VERTICAL, LEFT_TO_RIGHT, TOP_TO_BOTTOM, TOP_TO_BOTTOM, NULL }, "centeredmaster" },
+	{ "-M-",      flextile,         { -1, -1, SPLIT_CENTERED_HORIZONTAL, TOP_TO_BOTTOM, LEFT_TO_RIGHT, LEFT_TO_RIGHT, NULL }, "centeredmaster horiz" },
+	{ ":::",      flextile,         { -1, -1, NO_SPLIT, GAPPLESSGRID_CFACTS, GAPPLESSGRID_CFACTS, 0, NULL }, "gappless grid" },
+	{ "[\\]",     flextile,         { -1, -1, NO_SPLIT, DWINDLE_CFACTS, DWINDLE_CFACTS, 0, NULL }, "fibonacci dwindle" },
+	{ "(@)",      flextile,         { -1, -1, NO_SPLIT, SPIRAL_CFACTS, SPIRAL_CFACTS, 0, NULL }, "fibonacci spiral" },
+	{ "[T]",      flextile,         { -1, -1, SPLIT_VERTICAL, LEFT_TO_RIGHT, TATAMI_CFACTS, 0, NULL }, "tatami mats" },
+ 	{ "><>",      NULL,             { -1, -1 }, "floating" }, /* no layout function means floating behavior */
 };
 
 #define Shift ShiftMask
@@ -497,15 +504,15 @@ static Key keys[] = {
 	{ KeyPress,   MODKEY,                       XK_p,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
 	{ KeyPress,   MODKEY|Shift,                 XK_d,            spawn,                  {.v = dmenucmd } }, // spawn dmenu for launching other programs
 	{ KeyPress,   MODKEY,                       XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
-	{ KeyPress,   ControlMask|Alt,              XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
-	{ KeyPress,   ControlMask|Alt,              XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
-	{ KeyPress,   ControlMask|Alt,              XK_f,            spawn,                  {.v = browser } }, // spawn browser
+	{ KeyPress,   Ctrl|Alt,              XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
+	{ KeyPress,   Ctrl|Alt,              XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
+	{ KeyPress,   Ctrl|Alt,              XK_f,            spawn,                  {.v = browser } }, // spawn browser
 	{ KeyPress,   MODKEY|Shift,                 XK_Return,       spawn,                  {.v = filemanager } }, // draw/spawn a terminal
 	{ KeyPress,   MODKEY,                       XK_x,            spawn,                  {.v = logout } }, // archlinux-logout
 	{ KeyPress,   MODKEY|Shift,                 XK_r,            restart,                {0} }, // restart dusk
 	{ KeyPress,   MODKEY|Shift,                 XK_q,            killclient,             {0} }, // close the currently focused window
 	{ KeyPress,   MODKEY,                       XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
-	{ KeyPress,   MODKEY|ControlMask|Shift,     XK_Return,       riospawn,               {.v = termcmd } }, // draw/spawn a terminal
+	{ KeyPress,   MODKEY|Ctrl|Shift,     XK_Return,       riospawn,               {.v = termcmd } }, // draw/spawn a terminal
 	{ KeyPress,   MODKEY,                       XK_b,            togglebar,              {0} }, // toggles the display of the bar(s) on the current monitor
 
 	{ KeyPress,   MODKEY,                       XK_j,            focusstack,             {.i = +1 } }, // focus on the next client in the stack
@@ -516,10 +523,10 @@ static Key keys[] = {
 	{ KeyPress,   MODKEY,                       XK_Right,        focusdir,               {.i = 1 } }, // focus on the client right of the currently focused client
 	{ KeyPress,   MODKEY,                       XK_Up,           focusdir,               {.i = 2 } }, // focus on the client above the currently focused client
 	{ KeyPress,   MODKEY,                       XK_Down,         focusdir,               {.i = 3 } }, // focus on the client below the currently focused client
-	{ KeyPress,   MODKEY|ControlMask,           XK_Left,         placedir,               {.i = 0 } }, // swap places with the client window on the immediate left of the current client
-	{ KeyPress,   MODKEY|ControlMask,           XK_Right,        placedir,               {.i = 1 } }, // swap places with the client window on the immediate right of the current client
-	{ KeyPress,   MODKEY|ControlMask,           XK_Up,           placedir,               {.i = 2 } }, // swap places with the client window on the immediate up of the current client
-	{ KeyPress,   MODKEY|ControlMask,           XK_Down,         placedir,               {.i = 3 } }, // swap places with the client window on the immediate down of the current client
+	{ KeyPress,   MODKEY|Ctrl,                  XK_Left,         placedir,               {.i = 0 } }, // swap places with the client window on the immediate left of the current client
+	{ KeyPress,   MODKEY|Ctrl,                  XK_Right,        placedir,               {.i = 1 } }, // swap places with the client window on the immediate right of the current client
+	{ KeyPress,   MODKEY|Ctrl,                  XK_Up,           placedir,               {.i = 2 } }, // swap places with the client window on the immediate up of the current client
+	{ KeyPress,   MODKEY|Ctrl,                  XK_Down,         placedir,               {.i = 3 } }, // swap places with the client window on the immediate down of the current client
 
 	{ KeyPress,   MODKEY|Ctrl,                  XK_j,            pushdown,               {0} }, // move the selected client down the stack
 	{ KeyPress,   MODKEY|Ctrl,                  XK_k,            pushup,                 {0} }, // move the selected client up the stack
@@ -559,15 +566,15 @@ static Key keys[] = {
 	{ KeyPress,   MODKEY|Ctrl,                  XK_bracketright, rotatelayoutaxis,       {.i = +4 } }, // cycle through the available tiling arrangements for the secondary stack area
 	{ KeyPress,   MODKEY|Ctrl,                  XK_m,            mirrorlayout,           {0} }, // flip the master and stack areas
 	{ KeyPress,   MODKEY|Ctrl|Shift,            XK_m,            layoutconvert,          {0} }, // flip between horizontal and vertical layout
-	{ KeyPress,   MODKEY,                       XK_space,        setlayout,              {0} }, // toggles between current and previous layout
+	{ KeyPress,   MODKEY,                       XK_space,        setlayout,              {-1} }, // toggles between current and previous layout
 
 	{ KeyPress,   MODKEY|Ctrl,                  XK_g,            floatpos,               {.v = "50% 50% 80% 80%" } }, // center client and take up 80% of the screen
 	{ KeyPress,   MODKEY,                       XK_g,            togglefloating,         {0} }, // toggles between tiled and floating arrangement for the currently focused client
 	{ KeyPress,   MODKEY,                       XK_f,            togglefullscreen,       {0} }, // toggles fullscreen for the currently selected client
 	{ KeyPress,   MODKEY|Shift,                 XK_f,            togglefakefullscreen,   {0} }, // toggles "fake" fullscreen for the selected window
 	{ KeyPress,   Ctrl|Alt,                     XK_Tab,          togglenomodbuttons,     {0} }, // disables / enables keybindings that are not accompanied by any modifier buttons for a client
-	{ KeyPress,   MODKEY|ShiftMask,             XK_plus,         changeopacity,          {.f = +0.05 } }, // increase the client opacity (for compositors that support _NET_WM_OPACITY)
-	{ KeyPress,   MODKEY|ShiftMask,             XK_minus,        changeopacity,          {.f = -0.05 } }, // decrease the client opacity (for compositors that support _NET_WM_OPACITY)
+	{ KeyPress,   MODKEY|Shift,                 XK_plus,         changeopacity,          {.f = +0.05 } }, // increase the client opacity (for compositors that support _NET_WM_OPACITY)
+	{ KeyPress,   MODKEY|Shift,                 XK_minus,        changeopacity,          {.f = -0.05 } }, // decrease the client opacity (for compositors that support _NET_WM_OPACITY)
 
 	{ KeyPress,   MODKEY|Shift,                 XK_Left,        clienttomon,                 {.i = -1 } }, // focus on the previous monitor, if any
 	{ KeyPress,   MODKEY|Shift,                 XK_Right,       clienttomon,                 {.i = +1 } }, // focus on the next monitor, if any
@@ -641,7 +648,7 @@ static Key keys[] = {
 //	{ KeyPress,   MODKEY,                       XK_,             riodraw,                {0} }, // use slop to resize the currently selected client
 //	{ KeyPress,   MODKEY,                       XK_,             unfloatvisible,         {0} }, // makes all floating clients on the currently selected workspace tiled
 //	{ KeyPress,   MODKEY,                       XK_,             switchcol,              {0} }, // changes focus between the master and the primary stack area
-//	{ KeyPress,   MODKEY,                       XK_,             setlayout,              {.v = &layouts[0]} }, // sets a specific layout, see the layouts array for indices
+//	{ KeyPress,   MODKEY,                       XK_,             setlayout,              {0} }, // sets a specific layout, see the layouts array for indices
 //	{ KeyPress,   MODKEY,                       XK_,             xrdb,                   {0 } }, // reloads colors from XResources
 //	{ KeyPress,   MODKEY,                       XK_,             swallow,                {0} }, // makes the focused client swallow marked clients
 //	{ KeyPress,   MODKEY,                       XK_,             unswallow,              {0} }, // makes the focused client unswallow the most recently swallowed client
@@ -651,7 +658,7 @@ static Key keys[] = {
 /* click can be ClkWorkspaceBar, ClkLtSymbol, ClkStatusText, ClkWinTitle, ClkClientWin, or ClkRootWin */
 static Button buttons[] = {
 	/* click                     event mask               button          function          argument */
-	{ ClkLtSymbol,               0,                       Button1,        setlayout,        {0} }, // toggles between current and previous layout
+	{ ClkLtSymbol,               0,                       Button1,        setlayout,        {-1} }, // toggles between current and previous layout
 	{ ClkLtSymbol,               0,                       Button4,        cyclelayout,      {.i = +1 } }, // cycle through the available layouts
 	{ ClkLtSymbol,               0,                       Button5,        cyclelayout,      {.i = -1 } }, // cycle through the available layouts (in reverse)
 	{ ClkWinTitle,               0,                       Button1,        focuswin,         {0} }, // focus on the given client
@@ -681,6 +688,8 @@ static Button buttons[] = {
 	{ ClkClientWin,              MODKEY,                  Button2,        zoom,             {0} }, // moves the currently focused window to/from the master area (for tiled layouts)
 	{ ClkClientWin,              MODKEY|Ctrl,             Button1,        dragmfact,        {0} }, // dynamically change the size of the master area compared to the stack area(s)
 	{ ClkRootWin,                MODKEY|Ctrl,             Button1,        dragmfact,        {0} }, // dynamically change the size of the master area compared to the stack area(s)
+	{ ClkClientWin,              MODKEY|Ctrl,             Button3,        dragwfact,        {0} }, // dynamically change the size of a workspace relative to other workspaces
+	{ ClkRootWin,                MODKEY|Ctrl,             Button3,        dragwfact,        {0} }, // dynamically change the size of a workspace relative to other workspaces
 	{ ClkClientWin,              MODKEY,                  Button4,        inplacerotate,    {.i = +1 } }, // rotate clients within the respective area (master, primary stack, secondary stack) clockwise
 	{ ClkClientWin,              MODKEY,                  Button5,        inplacerotate,    {.i = -1 } }, // rotate clients within the respective area (master, primary stack, secondary stack) counter-clockwise
 	{ ClkClientWin,              MODKEY|Shift,            Button4,        rotatestack,      {.i = +1 } }, // rotate all clients (clockwise)
@@ -744,10 +753,10 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( setattachdefault, ARG_TYPE_STR),
 	IPCCOMMAND( setborderpx, ARG_TYPE_SINT ),
 	IPCCOMMAND( setlayoutaxisex, ARG_TYPE_SINT ),
-	IPCCOMMAND( setlayoutex, ARG_TYPE_SINT ),
-	IPCCOMMAND( setlayoutsafe, ARG_TYPE_PTR ),
+	IPCCOMMAND( setlayout, ARG_TYPE_SINT ),
 	IPCCOMMAND( setcfact, ARG_TYPE_FLOAT ),
 	IPCCOMMAND( setmfact, ARG_TYPE_FLOAT ),
+	IPCCOMMAND( setwfact, ARG_TYPE_FLOAT ),
 	IPCCOMMAND( setgapsex, ARG_TYPE_SINT ),
 	IPCCOMMANDS( setstatus, 2, ARG_TYPE_UINT, ARG_TYPE_STR ),
 	IPCCOMMAND( showbar, ARG_TYPE_NONE ),

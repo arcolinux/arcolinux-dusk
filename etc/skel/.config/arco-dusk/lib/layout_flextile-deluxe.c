@@ -61,7 +61,7 @@ customlayout(const Arg args[], int num_args)
 
 	/* 1) Layout symbol */
 	if (args[1].v)
-		strncpy(ws->ltsymbol, args[1].v, sizeof ws->ltsymbol);
+		strlcpy(ws->ltsymbol, args[1].v, sizeof ws->ltsymbol);
 
 	/* 2) nmaster */
 	if (args[2].i > -1)
@@ -126,12 +126,6 @@ setlayoutaxisex(const Arg *arg)
 
 	ws->ltaxis[axis] = arr;
 	arrange(ws);
-}
-
-void
-setlayoutex(const Arg *arg)
-{
-	setlayout(&((Arg) { .v = &layouts[arg->i % LENGTH(layouts)] }));
 }
 
 void
@@ -337,7 +331,7 @@ layout_split_horizontal_dual_stack(Workspace *ws, int x, int y, int h, int w, in
 void
 layout_split_horizontal_dual_stack_fixed(Workspace *ws, int x, int y, int h, int w, int ih, int iv, int n)
 {
-	int sh, sy, ox, sc;
+	int sw, sh, sy, ox, sc;
 
 	if (ws->nstack)
 		sc = ws->nstack;
@@ -1230,10 +1224,9 @@ setflexsymbols(Workspace *ws, unsigned int n)
 {
 	int l;
 	char sym1, sym2, sym3;
-	Client *c;
 
-	if (n == 0)
-		for (c = nexttiled(ws->clients); c; c = nexttiled(c->next), n++);
+	if (!n)
+		n = numtiled(ws);
 
 	l = abs(ws->ltaxis[LAYOUT]);
 	if (ws->ltaxis[MASTER] == MONOCLE && (l == NO_SPLIT || !ws->nmaster || n <= ws->nmaster)) {

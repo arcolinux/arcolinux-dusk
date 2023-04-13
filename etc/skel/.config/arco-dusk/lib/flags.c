@@ -44,6 +44,9 @@ toggleflagop(Client *c, const uint64_t flag, int op)
 void
 toggleclientflag(const Arg *arg)
 {
+	if (!selws->sel)
+		return;
+
 	toggleflagop(selws->sel, getflagbyname(arg->v), 2);
 	arrangews(selws);
 }
@@ -101,7 +104,7 @@ getflagbyname(const char *name)
 	map("Raise", Raise)
 	map("SkipTaskbar", SkipTaskbar)
 	map("ReapplyRules", ReapplyRules)
-	map("FlagPlaceholder0x400000000000", FlagPlaceholder0x400000000000)
+	map("CfgReqPosRelativeToMonitor", CfgReqPosRelativeToMonitor)
 	map("FlagPlaceholder0x800000000000", FlagPlaceholder0x800000000000)
 	map("FlagPlaceholder0x1000000000000", FlagPlaceholder0x1000000000000)
 	map("FlagPlaceholder0x2000000000000", FlagPlaceholder0x2000000000000)

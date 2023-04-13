@@ -7,16 +7,16 @@ floatpos(const Arg *arg)
 	if (!c)
 		return;
 
-	setfloatpos(c, (char *)arg->v, 1);
+	setfloatpos(c, (char *)arg->v, 1, 1);
 	resizeclient(c, c->x, c->y, c->w, c->h);
 	savefloats(c);
 
-	XRaiseWindow(dpy, c->win);
+	raiseclient(c);
 	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, c->w/2, c->h/2);
 }
 
 void
-setfloatpos(Client *c, const char *floatpos, const int auto_float)
+setfloatpos(Client *c, const char *floatpos, const int auto_float, const int save_floats)
 {
 	char xCh, yCh, wCh, hCh;
 	int x, y, w, h, wx, ww, wy, wh;
@@ -71,6 +71,12 @@ setfloatpos(Client *c, const char *floatpos, const int auto_float)
 	if (ISVISIBLE(c) && (ISFLOATING(c) || !c->ws->layout->arrange)) {
 		getfloatpos(x, xCh, w, wCh, wx, ww, c->x, c->w, c->bw, floatposgrid_x, &c->x, &c->w);
 		getfloatpos(y, yCh, h, hCh, wy, wh, c->y, c->h, c->bw, floatposgrid_y, &c->y, &c->h);
+		if (save_floats) {
+			c->sfx = c->x;
+			c->sfy = c->y;
+			c->sfw = c->w;
+			c->sfh = c->h;
+		}
 	} else {
 		getfloatpos(x, xCh, w, wCh, wx, ww, c->x, c->w, c->bw, floatposgrid_x, &c->sfx, &c->sfw);
 		getfloatpos(y, yCh, h, hCh, wy, wh, c->y, c->h, c->bw, floatposgrid_y, &c->sfy, &c->sfh);
