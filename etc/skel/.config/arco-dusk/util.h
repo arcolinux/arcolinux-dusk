@@ -19,7 +19,7 @@ static const uint64_t
 	SmartGaps = 0x1, // enables no gaps if there is only one visible window
 	SmartGapsMonocle = 0x2, // enforces no (outer) gaps in monocle layout
 	Swallow = 0x4, // enables swallowing of clients
-	SwallowFloating = 0x8, // means swallow floating windows by default
+	SwallowFloating = 0x8, // allow floating windows to swallow the terminal by default
 	CenteredWindowName = 0x10,
 	BarActiveGroupBorderColor = 0x20, // use border color of active group, otherwise title scheme is used
 	BarMasterGroupBorderColor = 0x40, // use border color of master group, otherwise title scheme is used
@@ -55,11 +55,11 @@ static const uint64_t
 	SystrayNoAlpha = 0x1000000000, // option to not use alpha (transparency) for the systray
 	WorkspaceLabels = 0x2000000000, // adds the class of the master client next to the workspace icon
 	FlexWinBorders = 0x4000000000, // option to use the SchemeFlex* colour schemes, if disabled then SchemeTitle* is used instead
-	FuncPlaceholder549755813888 = 0x8000000000,
-	FuncPlaceholder1099511627776 = 0x10000000000,
-	FuncPlaceholder2199023255552 = 0x20000000000,
-	FuncPlaceholder4398046511104 = 0x40000000000,
-	FuncPlaceholder8796093022208 = 0x80000000000,
+	FocusOnClick = 0x8000000000, // only allow focus change when the user clicks on windows (disables sloppy focus)
+	FocusedOnTopTiled = 0x10000000000, // additional toggle to also allow focused tiled clients to display on top of floating windows
+	BanishMouseCursor = 0x20000000000, // like xbanish, hides mouse cursor when using the keyboard
+	FocusFollowMouse = 0x40000000000, // window that rests under the mouse cursor will get focus when changing workspace or killing clients
+	BanishMouseCursorToCorner = 0x80000000000, // makes BanishMouseCursor also move the cursor to top right corner of the screen
 	FuncPlaceholder17592186044416 = 0x100000000000,
 	FuncPlaceholder35184372088832 = 0x200000000000,
 	FuncPlaceholder70368744177664 = 0x400000000000,

@@ -4,6 +4,9 @@ struct NumBarRules { char TooManyBarRules__Increase_BARRULES_macro_to_fix_this[L
 void
 barhover(XEvent *e, Bar *bar)
 {
+	if (!bar)
+		return;
+
 	const BarRule *br;
 	Monitor *m = bar->mon;
 	XMotionEvent *ev = &e->xmotion;
@@ -363,16 +366,16 @@ drawbarwin(Bar *bar)
 		XMoveResizeWindow(dpy, bar->win, bar->bx, bar->by, bar->bw, bar->bh);
 		setworkspaceareasformon(bar->mon);
 		arrangemon(bar->mon);
-	}
-	else if (total_drawn > 0 && !bar->showbar) {
+	} else if (total_drawn > 0 && !bar->showbar) {
 		bar->showbar = 1;
 		updatebarpos(bar->mon);
 		XMoveResizeWindow(dpy, bar->win, bar->bx, bar->by, bar->bw, bar->bh);
 		drw_map(drw, bar->win, 0, 0, bar->bw, bar->bh);
 		setworkspaceareasformon(bar->mon);
 		arrangemon(bar->mon);
-	} else
+	} else {
 		drw_map(drw, bar->win, 0, 0, bar->bw, bar->bh);
+	}
 }
 
 void
@@ -387,7 +390,7 @@ drawbarmodule(const BarRule *br, int r)
 	barg.scheme = (br->scheme > -1 ? br->scheme : SchemeNorm);
 
 	for (m = mons; m; m = m->next) {
-		if (br->monitor > -1 && br->monitor != m->num)
+		if ((br->monitor > -1 && br->monitor != m->num) || !m->showbar)
 			continue;
 		for (bar = m->bar; bar; bar = bar->next) {
 			if (br->bar > -1 && br->bar != bar->idx)
@@ -413,8 +416,9 @@ drawbarmodule(const BarRule *br, int r)
 					continue;
 				br->drawfunc(bar, &barg);
 				drw_map(drw, bar->win, barg.x, barg.y, barg.w, barg.h);
-			} else
+			} else {
 				drawbarwin(bar);
+			}
 		}
 	}
 }
@@ -431,6 +435,9 @@ updatebarpos(Monitor *m)
 void
 setbarpos(Bar *bar)
 {
+	if (!bar)
+		return;
+
 	char xCh, yCh, wCh, hCh;
 	float w, h;
 	float x, y;

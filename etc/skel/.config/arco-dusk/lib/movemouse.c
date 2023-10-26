@@ -20,7 +20,6 @@ movemouse(const Arg *arg)
 	XEvent ev;
 	Time lasttime = 0;
 	double prevopacity;
-	ignore_marked = 0; // movemouse supports marked clients
 
 	if (!(c = selws->sel))
 		return;
@@ -29,6 +28,7 @@ movemouse(const Arg *arg)
 
 	group_after = c->group;
 	if (ISMARKED(c)) {
+		ignore_marked = 0; // movemouse supports marked clients
 		group(NULL);
 	}
 
@@ -57,15 +57,20 @@ movemouse(const Arg *arg)
 	}
 
 	for (ws = workspaces; ws; ws = ws->next) {
+
 		if (!ws->visible)
 			continue;
+
 		lgirder[ngirders] = ws->wx + gappov;
 		rgirder[ngirders] = ws->wx + ws->ww - gappov;
 		tgirder[ngirders] = ws->wy + gappoh;
 		bgirder[ngirders] = ws->wy + ws->wh - gappoh;
 		ngirders++;
-		if (disabled(SnapToWindows) || arg->i == 11)
+
+		if (disabled(SnapToWindows) || arg->i == 11) {
 			continue;
+		}
+
 		for (s = ws->stack; s; s = s->snext) {
 			if ((!ISFLOATING(s) && ws->layout->arrange) || !ISVISIBLE(s) || s == c)
 				continue;

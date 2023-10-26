@@ -9,6 +9,8 @@ dump_settings(yajl_gen gen)
 	YMAP(
 		YSTR("Functionality"); YMAP(
 			YSTR("AutoReduceNmaster"); YBOOL(enabled(AutoReduceNmaster));
+			YSTR("BanishMouseCursor"); YBOOL(enabled(BanishMouseCursor));
+			YSTR("BanishMouseCursorToCorner"); YBOOL(enabled(BanishMouseCursorToCorner));
 			YSTR("SmartGaps"); YBOOL(enabled(SmartGaps));
 			YSTR("SmartGapsMonocle"); YBOOL(enabled(SmartGapsMonocle));
 			YSTR("Systray"); YBOOL(enabled(Systray));
@@ -26,9 +28,12 @@ dump_settings(yajl_gen gen)
 			YSTR("BarPadding"); YBOOL(enabled(BarPadding));
 			YSTR("NoBorders"); YBOOL(enabled(NoBorders));
 			YSTR("Warp"); YBOOL(enabled(Warp));
-			YSTR("FocusedOnTop"); YBOOL(enabled(FocusedOnTop));
-			YSTR("DecorationHints"); YBOOL(enabled(DecorationHints));
+			YSTR("FocusOnClick"); YBOOL(enabled(FocusOnClick));
 			YSTR("FocusOnNetActive"); YBOOL(enabled(FocusOnNetActive));
+			YSTR("FocusedOnTop"); YBOOL(enabled(FocusedOnTop));
+			YSTR("FocusedOnTopTiled"); YBOOL(enabled(FocusedOnTopTiled));
+			YSTR("FocusFollowMouse"); YBOOL(enabled(FocusFollowMouse));
+			YSTR("DecorationHints"); YBOOL(enabled(DecorationHints));
 			YSTR("AllowNoModifierButtons"); YBOOL(enabled(AllowNoModifierButtons));
 			YSTR("CenterSizeHintsClients"); YBOOL(enabled(CenterSizeHintsClients));
 			YSTR("ResizeHints"); YBOOL(enabled(ResizeHints));
@@ -73,6 +78,16 @@ dump_commands(yajl_gen gen)
 			)
 		}
 	)
+	// clang-format on
+
+	return 0;
+}
+
+int
+dump_bar_height(yajl_gen gen)
+{
+	// clang-format off
+	YINT(bh);
 	// clang-format on
 
 	return 0;
@@ -211,8 +226,9 @@ dump_client(yajl_gen gen, Client *c)
 			YSTR("NeedResize"); YBOOL(NEEDRESIZE(c));
 			YSTR("NeverFocus"); YBOOL(NEVERFOCUS(c));
 			YSTR("NoBorder"); YBOOL(NOBORDER(c));
-			YSTR("NoSwallow"); YBOOL(NOSWALLOW(c));
 			YSTR("NoFocusOnNetActive"); YBOOL(NOFOCUSONNETACTIVE(c));
+			YSTR("NoSwallow"); YBOOL(NOSWALLOW(c));
+			YSTR("NoWarp"); YBOOL(NOWARP(c));
 			YSTR("OnlyModButtons"); YBOOL(ONLYMODBUTTONS(c));
 			YSTR("RespectSizeHints"); YBOOL(RESPECTSIZEHINTS(c));
 			YSTR("RestoreFakeFullScreen"); YBOOL(RESTOREFAKEFULLSCREEN(c));
@@ -221,6 +237,7 @@ dump_client(yajl_gen gen, Client *c)
 			YSTR("SemiScratchpad"); YBOOL(SEMISCRATCHPAD(c));
 			YSTR("ScratchpadStayOnMon"); YBOOL(SCRATCHPADSTAYONMON(c));
 			YSTR("SkipTaskbar"); YBOOL(SKIPTASKBAR(c));
+			YSTR("SwallowRetainSize"); YBOOL(SWALLOWRETAINSIZE(c));
 			YSTR("SwitchWorkspace"); YBOOL(SWITCHWORKSPACE(c));
 			YSTR("EnableWorkspace"); YBOOL(ENABLEWORKSPACE(c));
 			YSTR("RevertWorkspace"); YBOOL(REVERTWORKSPACE(c));
@@ -269,12 +286,14 @@ dump_monitor(yajl_gen gen, Monitor *mon, int is_selected)
 				YSTR("current"); YSTR("NULL");
 			)
 
-			YSTR("bar"); YMAP(
-				YSTR("y"); YINT(mon->bar->by);
-				YSTR("is_shown"); YBOOL(mon->showbar);
-				YSTR("is_vert"); YBOOL(mon->bar->vert);
-				YSTR("window_id"); YINT(mon->bar->win);
-			)
+			if (mon->bar) {
+				YSTR("bar"); YMAP(
+					YSTR("y"); YINT(mon->bar->by);
+					YSTR("is_shown"); YBOOL(mon->showbar);
+					YSTR("is_vert"); YBOOL(mon->bar->vert);
+					YSTR("window_id"); YINT(mon->bar->win);
+				)
+			}
 		)
 
 		return 0;
@@ -327,12 +346,14 @@ dump_monitor(yajl_gen gen, Monitor *mon, int is_selected)
 			)
 		)
 
-		YSTR("bar"); YMAP(
-			YSTR("y"); YINT(mon->bar->by);
-			YSTR("is_shown"); YBOOL(mon->showbar);
-			YSTR("is_vert"); YBOOL(mon->bar->vert);
-			YSTR("window_id"); YINT(mon->bar->win);
-		)
+		if (mon->bar) {
+			YSTR("bar"); YMAP(
+				YSTR("y"); YINT(mon->bar->by);
+				YSTR("is_shown"); YBOOL(mon->showbar);
+				YSTR("is_vert"); YBOOL(mon->bar->vert);
+				YSTR("window_id"); YINT(mon->bar->win);
+			)
+		}
 	)
 	// clang-format on
 

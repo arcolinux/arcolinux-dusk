@@ -5,6 +5,9 @@ enum {
 	OCCUPIED,
 };
 
+static void attachws(Workspace *ws, Workspace *target);
+static void detachws(Workspace *ws);
+
 static void comboviewwsbyname(const Arg *arg);
 static void createworkspaces();
 static Workspace *createworkspace(int num, const WorkspaceRule *r);
@@ -13,7 +16,6 @@ static char * wsicon(Workspace *ws);
 static int hasclients(Workspace *ws);
 static int hashidden(Workspace *ws);
 static int hasfloating(Workspace *ws);
-static int ismasterclient(Client *c);
 static int noborder(Client *c);
 static void adjustwsformonitor(Workspace *ws, Monitor *m);
 static Workspace * getwsbyname(const Arg *arg);
@@ -21,6 +23,7 @@ static Workspace * getwsbyindex(int index);
 static uint64_t getwsmask(Monitor *m);
 static uint64_t getallwsmask(Monitor *m);
 static void viewwsmask(Monitor *m, uint64_t wsmask);
+static void storewsmask(int toggleprevious);
 
 static void enablews(const Arg *arg);
 static void enablewsbyname(const Arg *arg);
@@ -46,6 +49,7 @@ static void swapwsclients(Workspace *ws, Workspace *ows);
 static void swapwsbyname(const Arg *arg);
 
 static void togglepinnedws(const Arg *arg);
+static void togglews(const Arg *arg);
 
 static void viewallwsonmon(const Arg *arg);
 static void viewalloccwsonmon(const Arg *arg);
@@ -56,7 +60,10 @@ static void viewwsdir(const Arg *arg);
 static void viewwsonmon(Workspace *ws, Monitor *m, int enablews);
 
 static void assignworkspacetomonitor(Workspace *ws, Monitor *m);
-static void redistributeworkspaces(Monitor *new);
+static void redistributeworkspaces(void);
+static void reorientworkspaces(void);
+static void reorientworkspace(Workspace *ws, int orientation);
+static void reviewworkspaces(void);
 static void setwfact(const Arg *arg);
 static void setworkspaceareas();
 static void setworkspaceareasformon(Monitor *mon);

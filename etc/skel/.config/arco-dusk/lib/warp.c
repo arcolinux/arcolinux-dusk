@@ -1,8 +1,20 @@
 int
-canwarp(Workspace *ws)
+canwarp(Client *c)
 {
+	Workspace *ws;
+
+	/* Do not warp if the client is NULL */
+	if (!c)
+		return 0;
+
+	ws = c->ws;
+
 	/* Do not warp if the functionality is disabled */
 	if (disabled(Warp))
+		return 0;
+
+	/* Do not warp if the client says not to */
+	if (NOWARP(c))
 		return 0;
 
 	/* Do not warp if we are currently ignoring warp (e.g. when using drag functionality) */
@@ -15,18 +27,19 @@ canwarp(Workspace *ws)
 		return 0;
 
 	/* Do warp if the client is floating or floating layout is used */
-	if (ISFLOATING(ws->sel) || !ws->layout->arrange)
+	if (ISFLOATING(c) || !ws->layout->arrange)
 		return 1;
 
-	/* Do not warp if the monocle layout used */
+	/* Do not warp if monocle layout is used */
 	if (
 		ws->ltaxis[MASTER] == MONOCLE && (
 			abs(ws->ltaxis[LAYOUT]) == NO_SPLIT ||
 			!ws->nmaster ||
 			numtiled(ws) <= ws->nmaster
 		)
-	)
+	) {
 		return 0;
+	}
 
 	/* Fine to warp in other situations */
 	return 1;
@@ -80,6 +93,13 @@ warp(const Client *c)
 				y > bar->by &&
 				y < bar->by + bar->bh)
 				return;
+
+	if (enabled(BanishMouseCursor) && cursor_hidden) {
+		mouse_x = c->x + c->w / 2;
+		mouse_y = c->y + c->h / 2;
+		if (enabled(BanishMouseCursorToCorner))
+			return;
+	}
 
 	XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, c->w / 2, c->h / 2);
 }

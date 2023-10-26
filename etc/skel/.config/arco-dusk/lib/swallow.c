@@ -11,12 +11,12 @@ static xcb_connection_t *xcon;
 void
 swallow(const Arg *arg)
 {
-	Client *c, *next, *last, *s = CLIENT;
+	Client *c = selws->sel, *next, *last, *s = CLIENT;
 
 	if (!s)
 		return;
 
-	for (c = nextmarked(NULL, s); c; c = nextmarked(next, NULL)) {
+	for (c = nextmarked(NULL, c); c; c = nextmarked(next, NULL)) {
 		next = c->next;
 		if (c != s) {
 			detach(c);
@@ -61,35 +61,44 @@ replaceclient(Client *old, Client *new)
 
 	Client *c = NULL;
 	Workspace *ws = old->ws;
+	XWindowChanges wc;
 
 	new->ws = ws;
+
+	/* Place the new window below the old in terms of stack order. */
+	wc.stack_mode = Below;
+	wc.sibling = old->win;
+	XConfigureWindow(dpy, new->win, CWSibling|CWStackMode, &wc);
 	setflag(new, Floating, old->flags & Floating);
 
 	new->scratchkey = old->scratchkey;
 	old->scratchkey = 0;
 
 	new->next = old->next;
-	new->snext = old->snext;
-
-	if (old == ws->clients)
+	if (old == ws->clients) {
 		ws->clients = new;
-	else {
+	} else {
 		for (c = ws->clients; c && c->next != old; c = c->next);
 		c->next = new;
 	}
 
-	if (old == ws->stack)
+	new->snext = old->snext;
+	if (old == ws->stack) {
 		ws->stack = new;
-	else {
+	} else {
 		for (c = ws->stack; c && c->snext != old; c = c->snext);
 		c->snext = new;
+	}
+
+	if (ws->sel == old) {
+		ws->sel = new;
 	}
 
 	old->next = NULL;
 	old->snext = NULL;
 
 	if (ISVISIBLE(new) && !ISFULLSCREEN(new)) {
-		if (ISFLOATING(new))
+		if (ISFLOATING(new) && (SWALLOWRETAINSIZE(new) || SWALLOWRETAINSIZE(old)))
 			resize(new, old->x, old->y, new->w, new->h, 0);
 		else
 			resize(new, old->x, old->y, old->w, old->h, 0);
@@ -105,15 +114,16 @@ unswallow(const Arg *arg)
 
 	if (!c || !c->swallowing)
 		return;
-
 	s = c->swallowing;
 	if (c && replaceclient(c, s)) {
 		c->swallowing = s->swallowing;
 		s->swallowing = NULL;
-		attach(c);
+		attachabove(c, s);
 		attachstack(c);
-		focus(c);
-		arrange(c->ws);
+		if (!arg->v) {
+			focus(c);
+			arrange(c->ws);
+		}
 	}
 }
 
@@ -209,23 +219,70 @@ isdescprocess(pid_t p, pid_t c)
 	return (int)c;
 }
 
+void
+readswallowkey(Client *c)
+{
+	struct stat st;
+	char buffer[1024];
+	ssize_t bytes_read;
+	char path[30];
+	FILE* envfile;
+
+	if (!c || !c->pid || disabled(Swallow)) {
+		return;
+	}
+
+	/* Verify access to /proc */
+	if (access("/proc", R_OK | X_OK) != 0) {
+		return;
+	}
+
+	snprintf(path, 29, "/proc/%d/environ", c->pid);
+
+	/* Verify access to /proc/<pid>/environ file */
+	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || access(path, R_OK) != 0) {
+		return;
+	}
+
+	envfile = fopen(path, "r");
+	if (!envfile) {
+		return;
+	}
+
+	while ((bytes_read = fread(buffer, 1, 1023, envfile)) > 0) {
+		char* token = strtok(buffer, "\0");
+		while (token != NULL) {
+			if (strncmp(token, "SWALLOWKEY=", 11) == 0) {
+				c->swallowedby = (token + 11)[0];
+				break;
+			}
+			token = strtok(NULL, "\0");
+		}
+		if (c->swallowedby) {
+			break;
+		}
+	}
+
+	fclose(envfile);
+}
+
 Client *
 termforwin(const Client *w)
 {
 	Workspace *ws;
 	Client *c;
-	char key = w->swallowkey;
+	char key = w->swallowedby;
 
 	if (!w->pid)
 		return NULL;
 
 	c = selws->sel;
-	if (c && ISTERMINAL(c) && ((key && c->scratchkey == key) || (c->pid && isdescprocess(c->pid, w->pid))))
+	if (c && ISTERMINAL(c) && ((key && c->swallowkey == key) || (c->pid && isdescprocess(c->pid, w->pid))))
 		return c;
 
 	for (ws = workspaces; ws; ws = ws->next)
 		for (c = ws->stack; c; c = c->snext)
-			if (ISTERMINAL(c) && ((key && c->scratchkey == key) || (c->pid && isdescprocess(c->pid, w->pid))))
+			if (ISTERMINAL(c) && ((key && c->swallowkey == key) || (c->pid && isdescprocess(c->pid, w->pid))))
 				return c;
 
 	return NULL;

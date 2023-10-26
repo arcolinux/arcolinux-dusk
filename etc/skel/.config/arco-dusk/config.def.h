@@ -64,12 +64,14 @@ static int swap_occupied_workspace_label_format_strings = 0; /* 0 gives "icon: l
 /* See util.h for options */
 static uint64_t functionality = 0
 //	|AutoReduceNmaster // automatically reduce the number of master clients if one is closed
+//	|BanishMouseCursor // like xbanish, hides mouse cursor when using the keyboard
+//	|BanishMouseCursorToCorner // makes BanishMouseCursor move the cursor to the top right corner of the screen
 //	|SmartGaps // enables no or increased gaps if there is only one visible window
 //	|SmartGapsMonocle // enforces no gaps in monocle layout
 	|Systray // enables a systray in the bar
 //	|SystrayNoAlpha // disables the use of transparency for the systray, enable if you do not use a compositor
-	|Swallow // allows terminals to swallow X applications started from the command line
-	|SwallowFloating // means swallow floating windows by default
+	|Swallow // allows X applications started from the command line to swallow the terminal
+	|SwallowFloating // allow floating windows to swallow the terminal by default
 	|CenteredWindowName // center the window titles on the bar
 //	|BarActiveGroupBorderColor // use border color of active group, otherwise title scheme is used
 	|BarMasterGroupBorderColor // use border color of master group, otherwise title scheme is used
@@ -81,9 +83,12 @@ static uint64_t functionality = 0
 	|BarPadding // add vertical and side padding as per vertpad and sidepad variables above
 //	|NoBorders // as per the noborder patch, show no border when only one client in tiled mode
 //	|Warp // warp cursor to currently focused window
-//	|FocusedOnTop // allows focused window to stay on top of other windows
 //	|DecorationHints // omit drawing the window border if the applications asks not to
-	|FocusOnNetActive //  allow windows demanding attention to receive focus automatically
+//	|FocusedOnTop // allows focused window to stay on top of other windows
+//	|FocusedOnTopTiled // additional toggle to allow focused tiled clients to show on top of floating windows
+	|FocusFollowMouse // allow window under the mouse cursor to get focus when changing views or killing clients
+//	|FocusOnClick // only allow focus change when the user clicks on windows (disables sloppy focus)
+	|FocusOnNetActive // allow windows demanding attention to receive focus automatically
 	|AllowNoModifierButtons // allow some window operations, like move and resize, to work without having to hold down a modifier key
 	|CenterSizeHintsClients // center tiled clients subject to size hints within their tiled area
 //	|ResizeHints // respect size hints also when windows are tiled
@@ -245,13 +250,13 @@ static const Rule clientrules[] = {
 	{ .class = "konqueror", .flags = Disallowed },
 	
 	{ .class = "Arcologout.py", .flags = AlwaysOnTop|Centered },
+	{ .wintype = "_KDE_NET_WM_WINDOW_TYPE_OVERRIDE", .flags = Unmanaged },
 	{ .wintype = WTYPE "DESKTOP", .flags = Unmanaged|Lower },
 	{ .wintype = WTYPE "DOCK", .flags = Unmanaged|Raise },
 	{ .wintype = WTYPE "DIALOG", .flags = AlwaysOnTop|Centered|Floating },
 	{ .wintype = WTYPE "UTILITY", .flags = AlwaysOnTop|Centered|Floating },
 	{ .wintype = WTYPE "TOOLBAR", .flags = AlwaysOnTop|Centered|Floating },
 	{ .wintype = WTYPE "SPLASH", .flags = AlwaysOnTop|Centered|Floating },
-	{ .wintype = "_KDE_NET_WM_WINDOW_TYPE_OVERRIDE", .flags = Unmanaged },
 	{ .instance = "spterm (w)", .scratchkey = 'w', .flags = Floating },
 	{ .instance = "spterm (e)", .scratchkey = 'e', .flags = Floating },
 	{ .instance = "spfm (r)", .scratchkey = 'r', .flags = Floating },
@@ -470,10 +475,10 @@ static const Layout layouts[] = {
 	{ KeyPress,   MOD, XK_j, ACTION, {.i = INC(+1) } }, \
 	{ KeyPress,   MOD, XK_k, ACTION, {.i = INC(-1) } }, \
 	{ KeyPress,   MOD, XK_s, ACTION, {.i = PREVSEL } }, \
-	{ KeyPress,   MOD, XK_w, ACTION, {.i = 0 } }, \
-	{ KeyPress,   MOD, XK_e, ACTION, {.i = 1 } }, \
-	{ KeyPress,   MOD, XK_a, ACTION, {.i = 2 } }, \
-	{ KeyPress,   MOD, XK_z, ACTION, {.i = -1 } },
+	{ KeyPress,   MOD, XK_w, ACTION, {.i = 1 } }, \
+	{ KeyPress,   MOD, XK_e, ACTION, {.i = 2 } }, \
+	{ KeyPress,   MOD, XK_a, ACTION, {.i = 3 } }, \
+	{ KeyPress,   MOD, XK_z, ACTION, {.i = LASTTILED } },
 
 /* Helper macros for spawning commands */
 #define SHCMD(cmd) { .v = (const char*[]){ NULL, "/bin/sh", "-c", cmd, NULL } }
@@ -596,6 +601,7 @@ static Key keys[] = {
 
 //	STACKKEYS(AltGr|Ctrl,                                        stackfocus)                           // focus on the nth client in the stack, see the STACKKEYS macro for keybindings
 //	STACKKEYS(AltGr|Ctrl|Shift,                                  stackpush)                            // move the currently focused client to the nth place in the stack
+//	STACKKEYS(AltGr|Shift,                                       stackswap)                            // swap the currently focused client with the nth client in the stack
 
 	SCRATCHKEYS(MODKEY,                         XK_w,            spcmd_w)
 	SCRATCHKEYS(MODKEY,                         XK_e,            spcmd_e)
@@ -761,8 +767,9 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMANDS( setstatus, 2, ARG_TYPE_UINT, ARG_TYPE_STR ),
 	IPCCOMMAND( showbar, ARG_TYPE_NONE ),
 	IPCCOMMAND( showhideclient, ARG_TYPE_NONE ),
-	IPCCOMMAND( stackpush, ARG_TYPE_SINT ),
 	IPCCOMMAND( stackfocus, ARG_TYPE_SINT ),
+	IPCCOMMAND( stackpush, ARG_TYPE_SINT ),
+	IPCCOMMAND( stackswap, ARG_TYPE_SINT ),
 	IPCCOMMAND( swallow, ARG_TYPE_NONE ),
 	IPCCOMMAND( switchcol, ARG_TYPE_NONE ),
 	IPCCOMMAND( swapwsbyname, ARG_TYPE_STR ),
@@ -779,6 +786,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( togglenomodbuttons, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglepinnedws, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglesticky, ARG_TYPE_NONE ),
+	IPCCOMMAND( togglews, ARG_TYPE_NONE ),
 	IPCCOMMAND( transfer, ARG_TYPE_NONE ),
 	IPCCOMMAND( transferall, ARG_TYPE_NONE ),
 	IPCCOMMAND( unfloatvisible, ARG_TYPE_NONE ),

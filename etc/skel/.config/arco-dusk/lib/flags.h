@@ -20,12 +20,13 @@ static const uint64_t
 	Hidden = 0x400, // indicates that the client is hidden
 	Sticky = 0x800, // indicates that the client is sticky (always shown)
 	Terminal = 0x1000, // indicates that the client is a terminal, used by swallow
-	NoSwallow = 0x2000, // indicates that the client should never be swallowed if launched by a terminal
+	NoSwallow = 0x2000, // indicates that the client should never swallow another window
 	Locked = 0x4000, // used by setfullscreen, prevents state change
 	Transient = 0x8000, // whether the client has the transient for hint
 	OnlyModButtons = 0x10000, // restricts button keybindings to those that involve modifiers
 	Disallowed = 0x20000, // window is disallowed and will be forcibly killed
 	/* 0x40000, 0x80000, 0x100000 - three bits for attach modes as they are mutually exclusive, still room for two more up to 7 */
+	AttachDefault = 0, // used internally to prioritise client specific attach method and to fall back to default if not set
 	AttachMaster = 1 << 18, // attach at the top of the master area
 	AttachAbove = 2 << 18, // attach the client before the currently selected client
 	AttachBelow = 3 << 18, // attach the client after the currently selected client
@@ -58,8 +59,8 @@ static const uint64_t
 	SkipTaskbar = 0x100000000000, // do not include the window title for this client on the bar
 	ReapplyRules = 0x200000000000, // allow the client to get rules re-applied once when the window title changes
 	CfgReqPosRelativeToMonitor = 0x400000000000, // makes configure requests relative to the client's monitor
-	FlagPlaceholder0x800000000000 = 0x800000000000,
-	FlagPlaceholder0x1000000000000 = 0x1000000000000,
+	SwallowRetainSize = 0x800000000000, // allows for a client to retain its height and width when swallowed or unswallowed
+	NoWarp = 0x1000000000000, // disallow cursor to warp to this client
 	FlagPlaceholder0x2000000000000 = 0x2000000000000,
 	FlagPlaceholder0x4000000000000 = 0x4000000000000,
 	FlagPlaceholder0x8000000000000 = 0x8000000000000,
@@ -113,8 +114,9 @@ static const uint64_t
 #define NEEDRESIZE(C) (C && C->flags & NeedResize)
 #define NEVERFOCUS(C) (C && C->flags & NeverFocus)
 #define NOBORDER(C) (C && C->flags & NoBorder)
-#define NOSWALLOW(C) (C && C->flags & NoSwallow)
 #define NOFOCUSONNETACTIVE(C) (C && C->flags & NoFocusOnNetActive)
+#define NOSWALLOW(C) (C && C->flags & NoSwallow)
+#define NOWARP(C) (C && C->flags & NoWarp)
 #define ONLYMODBUTTONS(C) (C && C->flags & OnlyModButtons)
 #define REAPPLYRULES(C) (C && C->flags & ReapplyRules)
 #define RESPECTSIZEHINTS(C) (C && C->flags & RespectSizeHints)
@@ -125,6 +127,7 @@ static const uint64_t
 #define SEMISCRATCHPAD(C) (C && C->flags & SemiScratchpad)
 #define SKIPTASKBAR(C) (C && C->flags & SkipTaskbar)
 #define STEAMGAME(C) (C && C->flags & SteamGame)
+#define SWALLOWRETAINSIZE(C) (C && C->flags & SwallowRetainSize)
 #define SWITCHWORKSPACE(C) (C && C->flags & SwitchWorkspace)
 #define ENABLEWORKSPACE(C) (C && C->flags & EnableWorkspace)
 #define REVERTWORKSPACE(C) (C && C->flags & RevertWorkspace)
@@ -132,6 +135,7 @@ static const uint64_t
 #define MOVEPLACE(C) (C && C->flags & MovePlace)
 #define LOWER(C) (C && C->flags & Lower)
 #define RAISE(C) (C && C->flags & Raise)
+#define TILED(C) (C && C->win && !(C->flags & (Invisible|Hidden|Floating|Sticky)))
 
 #define WASFLOATING(C) (C && C->prevflags & Floating)
 #define WASFAKEFULLSCREEN(C) (C && C->prevflags & FakeFullScreen)

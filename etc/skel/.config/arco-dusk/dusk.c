@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <X11/cursorfont.h>
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
@@ -71,6 +72,7 @@
 #define TEXTW(X)                (drw_fontset_getwidth(drw, (X)))
 #define TEXT2DW(X)              (status2dtextlength((X)))
 #define CLIENT                  (arg && arg->v ? (Client*)arg->v : selws->sel)
+#define NAME(X)                 ((X) ? (X)->name : "NULL")
 
 /* enums */
 enum {
@@ -151,7 +153,7 @@ enum {
 	SchemeFlexActFloat,
 	SchemeFlexInaFloat,
 	SchemeFlexSelFloat,
-	SchemeLast, // leave this as the last item, mmmkay
+	SchemeLast,
 }; /* color schemes */
 
 enum {
@@ -165,10 +167,10 @@ enum {
 }; /* clicks */
 
 enum {
-	LAYOUT,       // controls overall layout arrangement / split
-	MASTER,       // indicates the tile arrangement for the master area
-	STACK,        // indicates the tile arrangement for the stack area
-	STACK2,       // indicates the tile arrangement for the secondary stack area
+	LAYOUT,       /* controls overall layout arrangement / split */
+	MASTER,       /* indicates the tile arrangement for the master area */
+	STACK,        /* indicates the tile arrangement for the stack area */
+	STACK2,       /* indicates the tile arrangement for the secondary stack area */
 	LTAXIS_LAST,
 }; /* named flextile constants */
 
@@ -195,20 +197,21 @@ typedef struct Client Client;
 struct Client {
 	char name[256];
 	char label[32];
-	char iconpath[256]; /* maximum file path length under linux is 4096 bytes */
+	char iconpath[256];  /* maximum file path length under linux is 4096 bytes */
 	float mina, maxa;
 	float cfact;
 	int x, y, w, h;
-	int sfx, sfy, sfw, sfh; /* stored float geometry, used on mode revert */
+	int sfx, sfy, sfw, sfh;  /* stored float geometry, used on mode revert */
 	int oldx, oldy, oldw, oldh;
 	int basew, baseh, incw, inch, maxw, maxh, minw, minh;
 	int bw, oldbw;
 	int group;
-	int area; /* arrangement area (master, stack, secondary stack) */
-	int arr;  /* tile arrangement (left to right, top to bottom, etc.) */
+	int area;  /* arrangement area (master, stack, secondary stack) */
+	int arr;   /* tile arrangement (left to right, top to bottom, etc.) */
 	int scheme;
 	char scratchkey;
 	char swallowkey;
+	char swallowedby;
 	unsigned int idx;
 	double opacity;
 	pid_t pid;
@@ -217,7 +220,7 @@ struct Client {
 	Client *swallowing;
 	Client *linked;
 	Workspace *ws;
-	Workspace *revertws; /* holds the original workspace info from when the client was opened */
+	Workspace *revertws;  /* holds the original workspace info from when the client was opened */
 	Window win;
 	unsigned int icw, ich;
 	Picture icon;
@@ -237,9 +240,9 @@ typedef struct {
 	int nmaster;
 	int nstack;
 	int layout;
-	int masteraxis; // master stack area
-	int stack1axis; // primary stack area
-	int stack2axis; // secondary stack area, e.g. centered master
+	int masteraxis;  /* master stack area */
+	int stack1axis;  /* primary stack area */
+	int stack2axis;  /* secondary stack area, e.g. centered master */
 	void (*symbolfunc)(Workspace *, unsigned int);
 } LayoutPreset;
 
@@ -260,6 +263,7 @@ struct Monitor {
 	int gappoh;           /* horizontal outer gaps */
 	int gappov;           /* vertical outer gaps */
 	int showbar;
+	int orientation;      /* screen orientation: 0 = Horizontal, 1 = Vertical */
 	uint64_t wsmask;
 	uint64_t prevwsmask;
 	unsigned int borderpx;
@@ -283,12 +287,13 @@ typedef struct {
 	const char *workspace;
 	const char *label;
 	const char swallowedby;
+	const char swallowkey;
 	const char *iconpath;
 	int resume;
 } Rule;
 
 struct Workspace {
-	int wx, wy, ww, wh; /* workspace area */
+	int wx, wy, ww, wh;  /* workspace area */
 	char ltsymbol[64];
 	char name[16];
 	float mfact;
@@ -299,8 +304,9 @@ struct Workspace {
 	int nmaster;
 	int enablegaps;
 	int visible;
+	int orientation;
 	int num;
-	int pinned; // whether workspace is pinned to assigned monitor or not
+	int pinned;  /* whether workspace is pinned to assigned monitor or not */
 	Client *clients;
 	Client *sel;
 	Client *stack;
@@ -310,9 +316,9 @@ struct Workspace {
 	Pixmap preview;
 	const Layout *layout;
 	const Layout *prevlayout;
-	char *icondef; // default icon
-	char *iconvac; // vacant icon (when workspace is selected, default is empty, and no clients)
-	char *iconocc; // when workspace has clients
+	char *icondef;  /* default icon */
+	char *iconvac;  /* vacant icon (when workspace is selected, default is empty, and no clients) */
+	char *iconocc;  /* when workspace has clients */
 };
 
 typedef struct {
@@ -373,6 +379,7 @@ static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
 static void focusstack(const Arg *arg);
 static Atom getatomprop(Client *c, Atom prop, Atom req);
+static Client *getpointerclient(void);
 static int getrootptr(int *x, int *y);
 static long getstate(Window w);
 static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
@@ -390,9 +397,7 @@ static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void maximize(Client *c, int maximize_vert, int maximize_horz);
 static void motionnotify(XEvent *e);
-static Client *nexttiled(Client *c);
-static Client *nthtiled(Client *c, int n);
-static Client *prevtiled(Client *c);
+static unsigned long long now(void);
 static void propertynotify(XEvent *e);
 static void restart(const Arg *arg);
 static void quit(const Arg *arg);
@@ -452,6 +457,9 @@ static int screen;
 static int sw, sh;             /* X display screen geometry width, height */
 static int lrpad;              /* sum of left and right padding for text */
 static int force_warp = 0;     /* force warp in some situations, e.g. killclient */
+static int cursor_hidden = 0;
+static int mouse_x = 0;
+static int mouse_y = 0;
 static int prev_ptr_x = 0;
 static int prev_ptr_y = 0;
 static int ignore_warp = 0;    /* force skip warp in some situations, e.g. dragmfact, dragcfact */
@@ -479,6 +487,9 @@ static void (*handler[LASTEvent]) (XEvent *) = {
 	[EnterNotify] = enternotify,
 	[Expose] = expose,
 	[FocusIn] = focusin,
+	#ifdef HAVE_LIBXI
+	[GenericEvent] = genericevent,
+	#endif
 	[KeyPress] = keypress,
 	[KeyRelease] = keypress,
 	[MappingNotify] = mappingnotify,
@@ -550,7 +561,8 @@ applyrules(Client *c)
 		{
 			c->flags |= Ruled | r->flags;
 			c->scratchkey = r->scratchkey;
-			c->swallowkey = r->swallowedby;
+			c->swallowedby = r->swallowedby;
+			c->swallowkey = r->swallowkey;
 
 			if (r->opacity)
 				c->opacity = r->opacity;
@@ -573,7 +585,7 @@ applyrules(Client *c)
 				load_icon_from_png_image(c, r->iconpath);
 
 			if (enabled(Debug) || DEBUGGING(c))
-				fprintf(stderr, "applyrules: client rule %d matched:\n    class: %s\n    role: %s\n    instance: %s\n    title: %s\n    wintype: %s\n    flags: %ld\n    floatpos: %s\n    workspace: %s\n    label: %s\n",
+				fprintf(stderr, "applyrules: client rule %d matched:\n    class: %s\n    role: %s\n    instance: %s\n    title: %s\n    wintype: %s\n    flags: %lu\n    floatpos: %s\n    workspace: %s\n    label: %s\n",
 					i,
 					r->class ? r->class : "NULL",
 					r->role ? r->role : "NULL",
@@ -585,7 +597,7 @@ applyrules(Client *c)
 					r->workspace,
 					r->label ? r->label : "NULL");
 			if (!r->resume)
-				break; // only allow one rule match
+				break; /* only allow one rule match */
 		}
 	}
 
@@ -644,8 +656,8 @@ reapplyrules(Client *c)
 			XRaiseWindow(dpy, c->win);
 		unmanage(c, 0);
 		if (client_ws) {
-			focus(NULL);
 			arrange(client_ws);
+			focus(NULL);
 			drawbar(client_ws->mon);
 		}
 		return 1;
@@ -657,8 +669,9 @@ reapplyrules(Client *c)
 		detach(c);
 		detachstack(c);
 		if (ISSTICKY(c)) {
-			stickyws->next = rule_ws;
 			stickyws->mon = rule_ws->mon;
+			detachws(stickyws);
+			attachws(stickyws, rule_ws);
 			c->ws = stickyws;
 			stickyws->sel = c;
 			rule_ws = stickyws;
@@ -703,11 +716,6 @@ reapplyrules(Client *c)
 		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
 		savefloats(c);
 	}
-
-	if (LOWER(c))
-		XLowerWindow(dpy, c->win);
-	else if (RAISE(c))
-		raiseclient(c);
 
 	updateclientdesktop(c);
 	updatewmhints(c);
@@ -766,7 +774,7 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 			*w -= c->basew;
 			*h -= c->baseh;
 		}
-		/* adjust for aspect limits */
+		/* adjust for aspect ratio limits */
 		if (c->mina > 0 && c->maxa > 0) {
 			if (c->maxa < (float)*w / *h)
 				*w = *h * c->maxa + 0.5;
@@ -803,20 +811,25 @@ arrange(Workspace *ws)
 		arrangews(ws);
 		restack(ws);
 		drawbar(ws->mon);
-	} else {
-		for (ws = workspaces; ws; ws = ws->next)
-			arrangews(ws);
-		drawbars();
+		return;
 	}
+
+	for (ws = workspaces; ws; ws = ws->next) {
+		if (ws == stickyws)
+			continue;
+		arrangews(ws);
+	}
+	drawbars();
 }
 
 void
 arrangemon(Monitor *m)
 {
 	Workspace *ws;
-	for (ws = workspaces; ws; ws = ws->next)
-		if (ws->mon == m)
+	for (ws = workspaces; ws; ws = ws->next) {
+		if (ws->mon == m && ws != stickyws)
 			arrangews(ws);
+	}
 }
 void
 arrangews(Workspace *ws)
@@ -848,7 +861,7 @@ attachstack(Client *c)
 void
 buttonpress(XEvent *e)
 {
-	int click, i;
+	int click, i, allow_focus;
 	Arg arg = {0};
 	Client *c;
 	Monitor *m;
@@ -856,8 +869,10 @@ buttonpress(XEvent *e)
 	XButtonPressedEvent *ev = &e->xbutton;
 	click = ClkRootWin;
 
+	allow_focus = (disabled(FocusOnClick) || (ev->button != Button4 && ev->button != Button5));
+
 	/* focus monitor if necessary */
-	if ((m = wintomon(ev->window)) && m != selmon) {
+	if ((m = wintomon(ev->window)) && m != selmon && allow_focus) {
 		ws = m->selws;
 		if (ws) {
 			unfocus(ws->sel, 1, NULL);
@@ -867,13 +882,30 @@ buttonpress(XEvent *e)
 		focus(NULL);
 	}
 
-	barpress(ev, m, &arg, &click);
+	c = wintoclient(ev->window);
 
-	if (click == ClkRootWin && (c = wintoclient(ev->window))) {
-		focus(c);
-		restack(selws);
+	#ifdef HAVE_LIBXI
+	if (!c && cursor_hidden && enabled(BanishMouseCursor)) {
+		c = recttoclient(mouse_x, mouse_y, 1, 1, 1);
+		show_cursor(NULL);
+	}
+	#endif
+
+	if (c) {
+		if (allow_focus) {
+			focus(c);
+			if (ISSTICKY(c)) {
+				restack(stickyws);
+			} else {
+				restack(selws);
+			}
+		}
 		XAllowEvents(dpy, ReplayPointer, CurrentTime);
 		click = ClkClientWin;
+	}
+
+	if (click == ClkRootWin) {
+		barpress(ev, m, &arg, &click);
 	}
 
 	for (i = 0; i < LENGTH(buttons); i++) {
@@ -882,6 +914,12 @@ buttonpress(XEvent *e)
 			buttons[i].func((click == ClkWorkspaceBar || click == ClkWinTitle) && buttons[i].arg.i == 0 ? &arg : &buttons[i].arg);
 		}
 	}
+
+	#ifdef HAVE_LIBXI
+	last_button_press = now();
+	#endif
+
+	ignore_marked = 1;
 }
 
 void
@@ -903,8 +941,11 @@ cleanup(void)
 	size_t i;
 
 	/* Persist data for restart purposes. */
-	for (ws = workspaces; ws; ws = ws->next)
+	for (ws = workspaces; ws; ws = ws->next) {
+		if (ws == stickyws)
+			continue;
 		persistworkspacestate(ws);
+	}
 	persistworkspacestate(stickyws);
 
 	if (restartwm) {
@@ -968,15 +1009,22 @@ cleanupmon(Monitor *mon)
 		for (m = mons; m && m->next != mon; m = m->next);
 		m->next = mon->next;
 	}
+
 	for (ws = workspaces; ws; ws = ws->next) {
-		if (ws->mon == mon) {
-			adjustwsformonitor(ws, mons);
+		if (ws->mon != mon || !mons)
+			continue;
+
+		if (ws == stickyws) {
 			ws->mon = mons;
-			ws->visible = 0;
-			ws->pinned = 0;
-			hidewsclients(ws->stack);
+			continue;
 		}
+
+		assignworkspacetomonitor(ws, mons);
+		ws->visible = 0;
+		ws->pinned = 0;
+		hidewsclients(ws->stack);
 	}
+
 	for (bar = mon->bar; bar; bar = mon->bar) {
 		if (!bar->external) {
 			XUnmapWindow(dpy, bar->win);
@@ -1007,51 +1055,15 @@ clientfittomon(Client *c, Monitor *m, int *cx, int *cy, int *cw, int *ch)
 void
 clientmessage(XEvent *e)
 {
-	XWindowAttributes wa;
-	XSetWindowAttributes swa;
 	XClientMessageEvent *cme = &e->xclient;
 	Workspace *ws;
 	Client *c;
 	unsigned int maximize_vert, maximize_horz;
 	int setfakefullscreen = 0;
 
-	if (enabled(Systray) && systray && cme->window == systray->win && cme->message_type == netatom[NetSystemTrayOP]) {
-		/* add systray icons */
-		if (cme->data.l[1] == SYSTEM_TRAY_REQUEST_DOCK) {
-			if (!(c = (Client *)calloc(1, sizeof(Client))))
-				die("fatal: could not malloc() %u bytes\n", sizeof(Client));
-			if (!(c->win = cme->data.l[2])) {
-				free(c);
-				return;
-			}
-
-			c->ws = selws;
-			c->next = systray->icons;
-			systray->icons = c;
-			XGetWindowAttributes(dpy, c->win, &wa);
-			c->x = c->oldx = c->y = c->oldy = 0;
-			c->w = c->oldw = wa.width;
-			c->h = c->oldh = wa.height;
-			c->oldbw = wa.border_width;
-			c->bw = 0;
-			SETFLOATING(c);
-			updatesizehints(c);
-			updatetitle(c);
-			updatesystrayicongeom(c, wa.width, wa.height);
-			XAddToSaveSet(dpy, c->win);
-			XSelectInput(dpy, c->win, StructureNotifyMask | PropertyChangeMask | ResizeRedirectMask);
-			XClassHint ch = {"systray", "systray"};
-			if (enabled(Debug))
-				fprintf(stderr, "clientmessage: received systray request dock for window %ld (%s)\n", c->win, c->name);
-			XSetClassHint(dpy, c->win, &ch);
-			XReparentWindow(dpy, c->win, systray->win, 0, 0);
-			/* use parents background color */
-			swa.background_pixel = scheme[SchemeNorm][ColBg].pixel;
-			XChangeWindowAttributes(dpy, c->win, CWBackPixel, &swa);
-			sendevent(c->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_EMBEDDED_NOTIFY, 0 , systray->win, XEMBED_EMBEDDED_VERSION);
-			XSync(dpy, False);
-			setclientstate(c, NormalState);
-		}
+	if (systray && cme->message_type == netatom[NetSystemTrayOP]) {
+		addsystrayicon(cme);
+		drawbarwin(systray->bar);
 		return;
 	}
 
@@ -1350,8 +1362,8 @@ clientstomon(const Arg *arg)
 	m = dirtomon(arg->i);
 	if (m->selws) {
 		moveallclientstows(ws, m->selws, enabled(ViewOnWs));
-		focus(NULL);
 		arrange(NULL);
+		focus(NULL);
 	}
 }
 
@@ -1433,8 +1445,8 @@ configurenotify(XEvent *e)
 				}
 				removepreview(ws);
 			}
-			focus(NULL);
 			arrange(NULL);
+			focus(NULL);
 		}
 	}
 
@@ -1491,23 +1503,25 @@ configurerequest(XEvent *e)
 					c->h = ev->height;
 				}
 			}
+
 			if (CFGREQPOSRELATIVETOMONITOR(c) && !ISSTICKY(c)) {
 				if ((c->x + c->w) > m->mx + m->mw && ISFLOATING(c))
 					c->x = m->mx + (m->mw / 2 - WIDTH(c) / 2);  /* center in x direction */
 				if ((c->y + c->h) > m->my + m->mh && ISFLOATING(c))
 					c->y = m->my + (m->mh / 2 - HEIGHT(c) / 2); /* center in y direction */
-			} else {
-				ws = recttows(c->x, c->y, c->w, c->h);
-				if (ws && ISSTICKY(c)) {
-					stickyws->mon = ws->mon;
-					drawbars();
-				} else if (ws && ws != c->ws) {
-					detach(c);
-					detachstack(c);
-					attachx(c, AttachBottom, ws);
-					attachstack(c);
-				}
 			}
+
+			ws = recttows(c->x, c->y, c->w, c->h);
+			if (ws && ISSTICKY(c)) {
+				stickyws->mon = ws->mon;
+				drawbars();
+			} else if (ISVISIBLE(c) && ws && ws != c->ws) {
+				detach(c);
+				detachstack(c);
+				attachx(c, AttachBottom, ws);
+				attachstack(c);
+			}
+
 			if ((ev->value_mask & (CWX|CWY)) && !(ev->value_mask & (CWWidth|CWHeight)))
 				configure(c);
 			if (ISVISIBLE(c))
@@ -1569,7 +1583,7 @@ destroynotify(XEvent *e)
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for swallowing client %s\n", c->name);
 		unmanage(c->swallowing, 1);
-	} else if (enabled(Systray) && (c = wintosystrayicon(ev->window))) {
+	} else if (systray && (c = wintosystrayicon(ev->window))) {
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: removing systray icon for client %s\n", c->name);
 		removesystrayicon(c);
@@ -1633,16 +1647,21 @@ dirtows(int dir)
 	Workspace *ws = selws, *nws = NULL, *tws;
 
 	if (dir > 0) { // right circular search
-		for (nws = ws->next; nws && !(nws->mon == ws->mon && (dir != 2 || nws->clients)); nws = nws->next);
+		for (nws = ws->next; nws; nws = nws->next)
+			if (nws->mon == ws->mon && nws != stickyws && (dir != 2 || nws->clients))
+				break;
 		if (!nws && ws != workspaces)
-			for (tws = workspaces; tws && tws != ws; tws = tws->next)
+			for (tws = workspaces; tws && tws != ws; tws = tws->next) {
+				if (tws == stickyws)
+					continue;
 				if (tws->mon == ws->mon && (dir != 2 || tws->clients)) {
 					nws = tws;
 					break;
 				}
+			}
 	} else { // left circular search
 		for (tws = workspaces; tws && !(nws && tws == ws); tws = tws->next)
-			if (tws->mon == ws->mon && (dir != -2 || tws->clients))
+			if (tws->mon == ws->mon && tws != stickyws && (dir != -2 || tws->clients))
 				nws = tws;
 	}
 
@@ -1673,15 +1692,30 @@ enternotify(XEvent *e)
 	Client *c;
 	Monitor *m;
 	XCrossingEvent *ev = &e->xcrossing;
-	if ((ev->mode != NotifyNormal || ev->detail == NotifyInferior) && ev->window != root)
-		return;
-	c = wintoclient(ev->window);
-	m = c ? c->ws->mon : wintomon(ev->window);
-	if (m != selmon)
-		entermon(m, c);
-	else if (selws == m->selws && (!c || (m->selws && c == m->selws->sel)))
+	int x, y;
+
+	if (enabled(FocusOnClick))
 		return;
 
+	if (cursor_hidden)
+		return;
+
+	getrootptr(&x, &y);
+	if (x == prev_ptr_x && y == prev_ptr_y)
+		return;
+
+	if ((ev->mode != NotifyNormal || ev->detail == NotifyInferior) && ev->window != root)
+		return;
+
+	c = getpointerclient();
+	if (!c)
+		c = wintoclient(ev->window);
+
+	m = c ? c->ws->mon : wintomon(ev->window);
+	if (selws == m->selws && (!c || (m->selws && c == m->selws->sel)))
+		return;
+	if (m != selmon)
+		entermon(m, c);
 	focus(c);
 }
 
@@ -1701,19 +1735,22 @@ focus(Client *c)
 		return;
 
 	Workspace *ws = c ? c->ws : selws;
-	Client *f;
+	Window focus_return;
+	int revert_to_return;
 	Bar *bar;
-	XWindowChanges wc;
 
+	if (enabled(FocusFollowMouse) && (!c || ISINVISIBLE(c)))
+		c = getpointerclient();
 	if (!c || ISINVISIBLE(c))
 		for (c = ws->stack; c && !ISVISIBLE(c); c = c->snext);
 	if (selws->sel && selws->sel != c)
 		unfocus(selws->sel, 0, c);
 	if (c) {
 		if (c->ws != selws) {
-			if (ISSTICKY(c)) {
+			if (c->ws == stickyws) {
 				stickyws->mon = selmon;
-				stickyws->next = selws;
+				detachws(stickyws);
+				attachws(stickyws, selws);
 				XSetWindowBorder(dpy, c->win, scheme[SchemeFlexSelFloat][ColBorder].pixel);
 			} else {
 				if (c->ws->mon != selmon)
@@ -1734,40 +1771,21 @@ focus(Client *c)
 		setfocus(c);
 
 		if (enabled(FocusedOnTop)) {
-			/* Move all visible tiled clients that are not marked as on top below the bar window */
-			wc.stack_mode = Below;
-			wc.sibling = c->ws->mon->bar->win;
-			for (f = c->ws->stack; f; f = f->snext) {
-				if (f != c && !ISFLOATING(f) && ISVISIBLE(f) && !(ALWAYSONTOP(f) || ISTRANSIENT(f))) {
-					XConfigureWindow(dpy, f->win, CWSibling|CWStackMode, &wc);
-					wc.sibling = f->win;
-				}
-			}
-
-			/* Move the currently focused client above the bar window */
-			wc.stack_mode = Above;
-			wc.sibling = c->ws->mon->bar->win;
-			XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
-
-			/* Move all visible floating windows that are not marked as on top below the current window */
-			wc.stack_mode = Below;
-			wc.sibling = c->win;
-			for (f = c->ws->stack; f; f = f->snext) {
-				if (f != c && ISFLOATING(f) && ISVISIBLE(f) && !(ALWAYSONTOP(f) || ISTRANSIENT(f))) {
-					XConfigureWindow(dpy, f->win, CWSibling|CWStackMode, &wc);
-					wc.sibling = f->win;
-				}
-			}
+			restack(c->ws);
+		} else {
+			XSync(dpy, False);
 		}
-
-		XSync(dpy, False);
-		skipfocusevents();
 		XSetWindowBorder(dpy, c->win, scheme[clientscheme(c, c)][ColBorder].pixel);
 	} else {
-		for (bar = selmon->bar; bar && !bar->showbar; bar = bar->next);
-		XSetInputFocus(dpy, bar ? bar->win : root, RevertToPointerRoot, CurrentTime);
-		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
-		ws->sel = ws->stack;
+		XGetInputFocus(dpy, &focus_return, &revert_to_return);
+
+		/* Allow sticky windows to retain focus when changing to an empty workspace */
+		if (!stickyws->sel || stickyws->sel != wintoclient(focus_return)) {
+			for (bar = selmon->bar; bar && !bar->showbar; bar = bar->next);
+			XSetInputFocus(dpy, bar ? bar->win : root, RevertToPointerRoot, CurrentTime);
+			XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
+			ws->sel = ws->stack;
+		}
 	}
 
 	if (arrange_focus_on_monocle &&
@@ -1782,25 +1800,16 @@ focus(Client *c)
 	drawbar(ws->mon);
 }
 
-/* there are some broken focus acquiring clients needing extra handling */
+/* There are some broken focus acquiring clients needing extra handling */
 void
 focusin(XEvent *e)
 {
-	int x, y;
 	Workspace *ws = selws;
 	XFocusChangeEvent *ev = &e->xfocus;
 
-	getrootptr(&x, &y);
-	if (x == prev_ptr_x && y == prev_ptr_y) {
-		skipfocusevents();
-		return;
-	}
-
-	if (ws->sel && ev->window != ws->sel->win && wintoclient(ev->window))
+	Client *c = wintoclient(ev->window);
+	if (ws->sel && ev->window != ws->sel->win && c)
 		setfocus(ws->sel);
-
-	prev_ptr_x = x;
-	prev_ptr_y = y;
 }
 
 void
@@ -1819,7 +1828,7 @@ focusmon(const Arg *arg)
 		selws = m->selws;
 	unfocus(sel, 0, NULL);
 	focus(NULL);
-	if (canwarp(selws))
+	if (canwarp(selws->sel))
 		warp(selws->sel);
 }
 
@@ -1828,7 +1837,9 @@ focusstack(const Arg *arg)
 {
 	Client *c = NULL, *i;
 	Workspace *ws = selws, *prevws = NULL, *w = NULL;
-	int n = (selws && selws->sel == NULL);
+
+	int n = 0;
+	int firstws = 1;
 
 	if (!ws || !getwsmask(selws->mon))
 		return;
@@ -1837,7 +1848,8 @@ focusstack(const Arg *arg)
 		for (; ws && !c; ws = (ws->next ? ws->next : workspaces)) {
 			if (!ws->visible || (enabled(RestrictFocusstackToMonitor) && ws->mon != selws->mon))
 				continue;
-			for (c = (n == 0 && ws->sel ? ws->sel->next : ws->clients); c && (ISINVISIBLE(c) || (arg->i == 1 && HIDDEN(c))); c = c->next);
+			for (c = (firstws ? selws->sel : ws->clients); c && (c == selws->sel || ISINVISIBLE(c) || (arg->i == 1 && HIDDEN(c))); c = c->next);
+			firstws = 0;
 			if (n++ > LENGTH(wsrules))
 				break;
 		}
@@ -1863,12 +1875,13 @@ focusstack(const Arg *arg)
 	if (c) {
 		focus(c);
 		if (enabled(FocusedOnTop)) {
-			if (canwarp(c->ws)) {
+			if (canwarp(c)) {
 				force_warp = 1;
 				warp(c);
 			}
-		} else
+		} else {
 			restack(c->ws);
+		}
 	}
 }
 
@@ -1899,7 +1912,27 @@ getrootptr(int *x, int *y)
 	unsigned int dui;
 	Window dummy;
 
+	if (cursor_hidden && enabled(BanishMouseCursor)) {
+		*x = mouse_x;
+		*y = mouse_y;
+		return 1;
+	}
+
 	return XQueryPointer(dpy, root, &dummy, &dummy, x, y, &di, &di, &dui);
+}
+
+Client *
+getpointerclient(void)
+{
+	Window dummy, win;
+	int di;
+	unsigned int dui;
+
+	if (cursor_hidden && enabled(BanishMouseCursor))
+		return NULL;
+
+	XQueryPointer(dpy, root, &dummy, &win, &di, &di, &di, &di, &dui);
+	return wintoclient(win);
 }
 
 long
@@ -2070,16 +2103,8 @@ keyrelease(XEvent *e)
 	if (!combo)
 		return;
 
-	Monitor *m = selws->mon;
-	uint64_t wsmask = getwsmask(m);
-
-	if (m->prevwsmask == wsmask && m->wsmask) {
-		if (!monitorchanged && getallwsmask(m) & m->wsmask)
-			viewwsmask(m, m->wsmask);
-	} else if (m->prevwsmask)
-		m->wsmask = m->prevwsmask;
+	storewsmask(1);
 	combo = 0;
-	monitorchanged = 0;
 }
 
 void
@@ -2088,8 +2113,13 @@ killclient(const Arg *arg)
 	Client *c = CLIENT;
 
 	for (c = nextmarked(NULL, c); c; c = nextmarked(c->next, NULL)) {
-		if (ISPERMANENT(c))
+		if (ISPERMANENT(c)) {
+			if (c->scratchkey) {
+				addflag(c, Invisible);
+				hide(c);
+			}
 			continue;
+		}
 
 		if (sendevent(c->win, wmatom[WMDelete], NoEventMask, wmatom[WMDelete], CurrentTime, 0, 0, 0))
 			continue;
@@ -2186,7 +2216,8 @@ manage(Window w, XWindowAttributes *wa)
 		term = termforwin(c);
 
 	if (ISSTICKY(c)) {
-		stickyws->next = c->ws;
+		detachws(stickyws);
+		attachws(stickyws, c->ws);
 		stickyws->mon = c->ws->mon;
 		c->ws = stickyws;
 		stickyws->sel = c;
@@ -2210,7 +2241,7 @@ manage(Window w, XWindowAttributes *wa)
 		c->y = m->my + m->mh - HEIGHT(c);
 	c->x = MAX(c->x, m->mx);
 	/* only fix client y-offset, if the client center might cover the bar */
-	c->y = MAX(c->y, ((m->bar->by == m->my) && (c->x + (c->w / 2) >= m->wx)
+	c->y = MAX(c->y, ((m->bar && m->bar->by == m->my) && (c->x + (c->w / 2) >= m->wx)
 		&& (c->x + (c->w / 2) < m->wx + m->ww)) ? bh : m->my);
 	wc.border_width = c->bw;
 	XConfigureWindow(dpy, w, CWBorderWidth, &wc);
@@ -2223,11 +2254,12 @@ manage(Window w, XWindowAttributes *wa)
 	if (getatomprop(c, netatom[NetWMState], XA_ATOM) == netatom[NetWMFullscreen] || ISFULLSCREEN(c)) {
 		setflag(c, FullScreen, 0);
 		setfullscreen(c, 1, 0);
-		term = NULL; /* do not allow terminals to swallow windows that start in fullscreen */
+		term = NULL; /* do not allow terminals to be swallowed by windows that start in fullscreen */
 	}
 
 	updatewmhints(c);
 	updatemotifhints(c);
+	readswallowkey(c);
 
 	XSelectInput(dpy, w, EnterWindowMask|FocusChangeMask|PropertyChangeMask|StructureNotifyMask);
 	grabbuttons(c, 0);
@@ -2244,12 +2276,12 @@ manage(Window w, XWindowAttributes *wa)
 	XChangeProperty(dpy, c->win, netatom[NetWMAllowedActions], XA_ATOM, 32,
 		PropModeReplace, (unsigned char *) allowed, NetWMActionLast);
 
-	/* Do not attach client if it is being swallowed */
+	/* Do not attach client if it swallows a terminal */
 	if (term && swallowclient(term, c)) {
-		/* Do not let swallowed client steal focus unless the terminal has focus */
+		/* Do not let the swallowing client steal focus unless the terminal has focus */
 		focusclient = (term == selws->sel);
 	} else {
-		attachx(c, 0, NULL);
+		attachx(c, AttachDefault, NULL);
 
 		if (focusclient || !c->ws->sel || !c->ws->stack)
 			attachstack(c);
@@ -2308,6 +2340,7 @@ manage(Window w, XWindowAttributes *wa)
 
 	if (ISFLOATING(c))
 		XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
+
 	if (ISVISIBLE(c))
 		show(c);
 	else
@@ -2316,11 +2349,6 @@ manage(Window w, XWindowAttributes *wa)
 
 	if (focusclient)
 		focus(c);
-
-	if (LOWER(c))
-		XLowerWindow(dpy, c->win);
-	else if (RAISE(c))
-		XRaiseWindow(dpy, c->win);
 
 	setfloatinghint(c);
 	if (SEMISCRATCHPAD(c) && c->scratchkey)
@@ -2350,7 +2378,7 @@ maprequest(XEvent *e)
 	XMapRequestEvent *ev = &e->xmaprequest;
 
 	Client *i;
-	if (enabled(Systray) && systray && (i = wintosystrayicon(ev->window))) {
+	if (systray && (i = wintosystrayicon(ev->window))) {
 		sendevent(i->win, netatom[Xembed], StructureNotifyMask, CurrentTime, XEMBED_WINDOW_ACTIVATE, 0, systray->win, XEMBED_EMBEDDED_VERSION);
 		drawbarwin(systray->bar);
 	}
@@ -2361,8 +2389,10 @@ maprequest(XEvent *e)
 		fprintf(stderr, "maprequest: refusing to map window %ld with depth of 0\n", ev->window);
 		return;
 	}
-	if (wa.override_redirect)
+	if (wa.override_redirect) {
+		XRaiseWindow(dpy, ev->window);
 		return;
+	}
 	if (!wintoclient(ev->window))
 		manage(ev->window, &wa);
 }
@@ -2448,29 +2478,11 @@ motionnotify(XEvent *e)
 	}
 }
 
-Client *
-nexttiled(Client *c)
-{
-	for (; c && (ISFLOATING(c) || !ISVISIBLE(c)); c = c->next);
-	return c;
-}
-
-Client *
-nthtiled(Client *c, int n)
-{
-	int i;
-	for (i = 0; c && i < n; c = c->next)
-		if (!ISFLOATING(c) && ISVISIBLE(c))
-			i++;
-	return c;
-}
-
-Client *
-prevtiled(Client *c)
-{
-	Client *p, *r;
-	for (p = nexttiled(c->ws->clients), r = NULL; p && p != c && (r = p); p = nexttiled(p->next));
-	return r;
+unsigned long long
+now(void) {
+	struct timespec currentTime;
+	clock_gettime(CLOCK_REALTIME, &currentTime);
+	return currentTime.tv_sec * 1000LL + currentTime.tv_nsec / 1000000LL;
 }
 
 /* The structure for PropertyNotify events contains:
@@ -2517,7 +2529,7 @@ propertynotify(XEvent *e)
 
 	pn_prev_count++;
 
-	if (enabled(Systray) && (c = wintosystrayicon(ev->window))) {
+	if (systray && (c = wintosystrayicon(ev->window))) {
 		if (ev->atom == XA_WM_NORMAL_HINTS) {
 			updatesizehints(c);
 			updatesystrayicongeom(c, c->w, c->h);
@@ -2595,25 +2607,66 @@ quit(const Arg *arg)
 void
 raiseclient(Client *c)
 {
-	Client *s, *l = NULL;
-	Workspace *ws = c->ws;
+	Client *s, *top = NULL;
+	Workspace *ws;
 	XWindowChanges wc;
+	int raised = 0;
 
-	/* Do not raise if client is tiled. */
-	if (!ISFLOATING(c) && ws->layout->arrange)
+	/* If the raised client is on the sticky workspace, then refer to the previously
+	 * selected workspace when for searching other clients. */
+	ws = (!c ? selws : c->ws == stickyws ? stickyws->next : c->ws);
+	wc.stack_mode = Above;
+	wc.sibling = ws->mon->bar ? ws->mon->bar->win : wmcheckwin;
+
+	/* If the raised client is always on top, then it should be raised first. */
+	if (ALWAYSONTOP(c) || ISTRANSIENT(c) || ISSTICKY(c)) {
+		top = c;
+		XRaiseWindow(dpy, c->win);
+		wc.stack_mode = Below;
+		wc.sibling = c->win;
+		raised = 1;
+	}
+
+	/* Check if there are floating always on top clients that need to be on top. */
+	for (s = ws->stack; s; s = s->snext) {
+		if (s == c || !ISFLOATING(s) || !(ALWAYSONTOP(s) || ISTRANSIENT(s)))
+			continue;
+
+		if (!top) {
+			top = s;
+			XRaiseWindow(dpy, s->win);
+			wc.stack_mode = Below;
+			wc.sibling = s->win;
+			continue;
+		}
+
+		XConfigureWindow(dpy, s->win, CWSibling|CWStackMode, &wc);
+		wc.sibling = s->win;
+	}
+
+	/* Otherwise check if there are sticky clients first that need to be on top. */
+	for (s = stickyws->stack; s; s = s->snext) {
+		if (s == c)
+			continue;
+
+		if (!top) {
+			top = s;
+			XRaiseWindow(dpy, s->win);
+			wc.stack_mode = Below;
+			wc.sibling = s->win;
+			continue;
+		}
+
+		XConfigureWindow(dpy, s->win, CWSibling|CWStackMode, &wc);
+		wc.sibling = s->win;
+	}
+
+	if (raised)
 		return;
 
-	if (!ALWAYSONTOP(c)) {
-		/* find the lowest stacked client that is always on top and place the window below that */
-		for (s = ws->stack; s; s = s->snext)
-			if (ALWAYSONTOP(s) && (ISFLOATING(c) || !ws->layout->arrange))
-				l = s;
-		if (l) {
-			wc.stack_mode = Below;
-			wc.sibling = l->win;
-			XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
-			return;
-		}
+	if (top) {
+		XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
+		return;
 	}
 
 	XRaiseWindow(dpy, c->win);
@@ -2678,7 +2731,7 @@ recttows(int x, int y, int w, int h)
 	int a, area = 0;
 
 	for (ws = workspaces; ws; ws = ws->next)
-		if (ws->visible && (a = INTERSECT(x, y, w, h, ws)) > area) {
+		if (ws->visible && ws != stickyws && (a = INTERSECT(x, y, w, h, ws)) > area) {
 			area = a;
 			r = ws;
 		}
@@ -2743,30 +2796,35 @@ resizeclientpad(Client *c, int x, int y, int w, int h, int tw, int th)
 void
 restack(Workspace *ws)
 {
-	Client *c;
+	Client *c = ws->sel;
+	Client *s, *raised;
 	XWindowChanges wc;
 
-	if (!ws->sel)
+	if (!c)
 		return;
 
-	raiseclient(ws->sel);
+	raised = (enabled(FocusedOnTopTiled) || ISFLOATING(c) ? c : NULL);
 
 	/* Place tiled clients below the bar window */
 	if (ws->layout->arrange) {
 		wc.stack_mode = Below;
-		wc.sibling = ws->mon->bar->win;
-		for (c = ws->stack; c; c = c->snext)
-			if (!ISFLOATING(c) && ISVISIBLE(c)) {
-				XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
-				wc.sibling = c->win;
+		wc.sibling = ws->mon->bar ? ws->mon->bar->win : wmcheckwin;
+		for (s = ws->stack; s; s = s->snext) {
+			if (TILED(s) && s != raised) {
+				XConfigureWindow(dpy, s->win, CWSibling|CWStackMode, &wc);
+				wc.sibling = s->win;
 			}
+		}
 	}
 
-	XSync(dpy, False);
-	skipfocusevents();
+	if (raised)
+		raiseclient(raised);
 
-	if (canwarp(ws))
-		warp(ws->sel);
+	XSync(dpy, False);
+	if (canwarp(c))
+		warp(c);
+
+	skipfocusevents();
 }
 
 void
@@ -3089,8 +3147,6 @@ setup(void)
 	root = RootWindow(dpy, screen);
 	xinitvisual();
 	drw = drw_create(dpy, screen, root, sw, sh, visual, depth, cmap);
-	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
-		die("no fonts could be loaded.");
 
 	/* init appearance */
 	scheme = ecalloc(LENGTH(colors) + 1, sizeof(Clr *));
@@ -3101,6 +3157,9 @@ setup(void)
 
 	if (enabled(Xresources))
 		loadxrdb();
+
+	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
+		die("no fonts could be loaded.");
 
 	lrpad = drw->fonts->h + horizpadbar;
 	bh = bar_height ? bar_height : drw->fonts->h + vertpadbar;
@@ -3135,6 +3194,7 @@ setup(void)
 
 	createworkspaces();
 	updatebars();
+	initsystray();
 
 	/* supporting window for NetWMCheck */
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
@@ -3162,6 +3222,26 @@ setup(void)
 		|LeaveWindowMask|StructureNotifyMask|PropertyChangeMask;
 	XChangeWindowAttributes(dpy, root, CWEventMask|CWCursor, &wa);
 	XSelectInput(dpy, root, wa.event_mask);
+
+	#ifdef HAVE_LIBXI
+	if (!XQueryExtension(dpy, "XInputExtension", &xi_opcode, &i, &i)) {
+		fprintf(stderr, "Warning: XInput is not available.");
+	}
+	/* Tell XInput to send us all RawMotion events. */
+	unsigned char mask_bytes[XIMaskLen(XI_LASTEVENT)];
+	memset(mask_bytes, 0, sizeof(mask_bytes));
+	XISetMask(mask_bytes, XI_RawMotion);
+	XISetMask(mask_bytes, XI_RawKeyRelease);
+	XISetMask(mask_bytes, XI_RawTouchBegin);
+	XISetMask(mask_bytes, XI_RawTouchEnd);
+	XISetMask(mask_bytes, XI_RawTouchUpdate);
+
+	XIEventMask mask;
+	mask.deviceid = XIAllMasterDevices;
+	mask.mask_len = sizeof(mask_bytes);
+	mask.mask = mask_bytes;
+	XISelectEvents(dpy, root, &mask, 1);
+	#endif
 	grabkeys();
 	focus(NULL);
 	setupepoll();
@@ -3239,7 +3319,7 @@ spawncmd(const Arg *arg, int buttonclick, int orphan)
 					if (!S_ISDIR(statbuf.st_mode))
 						cwd = dirname(cwd);
 
-					if (!chdir(cwd))
+					if (strlen(cwd) > 1 && !chdir(cwd))
 						break;
 				}
 
@@ -3302,12 +3382,12 @@ structurenotify(XEvent *e)
 	} while (XCheckMaskEvent(dpy, StructureNotifyMask|SubstructureNotifyMask, e));
 
 	if (multiws) {
-		focus(NULL);
 		arrange(NULL);
+		focus(NULL);
 		drawbars();
 	} else if (ws) {
-		focus(NULL);
 		arrange(ws);
+		focus(NULL);
 		drawbar(ws->mon);
 	}
 }
@@ -3342,8 +3422,7 @@ togglefloating(const Arg *arg)
 				floatpos(&((Arg) { .v = toggle_float_pos }));
 			else
 				restorefloats(c);
-
-			wc.sibling = c->ws->mon->bar->win;
+			wc.sibling = c->ws->mon->bar ? c->ws->mon->bar->win : wmcheckwin;
 			XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
 		}
 
@@ -3402,6 +3481,8 @@ togglemaximize(Client *c, int maximize_vert, int maximize_horz)
 void
 unfocus(Client *c, int setfocus, Client *nextfocus)
 {
+	XWindowChanges wc;
+
 	if (!c)
 		return;
 	if (ISFULLSCREEN(c) && ISVISIBLE(c) && c->ws == selws && nextfocus && !ISFLOATING(nextfocus) && !STEAMGAME(c))
@@ -3417,6 +3498,12 @@ unfocus(Client *c, int setfocus, Client *nextfocus)
 		setwindowborders(c->ws, nextfocus);
 	else
 		XSetWindowBorder(dpy, c->win, scheme[clientscheme(c, nextfocus)][ColBorder].pixel);
+
+	if (enabled(FocusedOnTopTiled) && !ISFLOATING(c)) {
+		wc.stack_mode = Below;
+		wc.sibling = c->ws->mon->bar ? c->ws->mon->bar->win : wmcheckwin;
+		XConfigureWindow(dpy, c->win, CWSibling|CWStackMode, &wc);
+	}
 
 	c->ws->sel = NULL;
 }
@@ -3445,14 +3532,14 @@ unmanage(Client *c, int destroyed)
 		revertws = NULL;
 	}
 
-	if (c->swallowing)
+	if (c->swallowing) {
 		unswallow(&((Arg) { .v = c }));
+	} else if (enabled(AutoReduceNmaster) && ws->nmaster > 1 && ismasterclient(c)) {
+		ws->nmaster--;
+	}
 
 	if (ISMARKED(c))
 		unmarkclient(c);
-
-	if (enabled(AutoReduceNmaster) && ws->nmaster > 1 && ismasterclient(c))
-		ws->nmaster--;
 
 	detach(c);
 	detachstack(c);
@@ -3527,8 +3614,9 @@ unmapnotify(XEvent *e)
 			setclientstate(c, WithdrawnState);
 		else
 			unmanage(c->swallowing, 0);
-	} else if (enabled(Systray) && (c = wintosystrayicon(ev->window))) {
+	} else if (systray && (c = wintosystrayicon(ev->window))) {
 		removesystrayicon(c);
+		drawbarwin(systray->bar);
 	}
 
 	return ws;
@@ -3590,6 +3678,7 @@ updategeom(int width, int height)
 			else
 				mons = createmon(i);
 		}
+
 		for (m = mons; m && m->num < nn; m = m->next) {
 			if (m->num >= n
 			|| unique[m->num].x_org != m->mx || unique[m->num].y_org != m->my
@@ -3600,11 +3689,15 @@ updategeom(int width, int height)
 				m->my = m->wy = unique[m->num].y_org;
 				m->mw = m->ww = unique[m->num].width;
 				m->mh = m->wh = unique[m->num].height;
+				m->orientation = (m->mw < m->mh);
 				updatebarpos(m);
 			}
-			if (m->num >= n)
-				redistributeworkspaces(m);
 		}
+
+		reorientworkspaces();
+
+		if (n < nn)
+			redistributeworkspaces();
 
 		for (i = nn; i < n; i++) {
 			for (m = mons; m && m->next; m = m->next);
@@ -3612,6 +3705,9 @@ updategeom(int width, int height)
 				selmon = mons;
 			cleanupmon(m);
 		}
+
+		reviewworkspaces();
+
 		free(unique);
 	} else
 #endif /* XINERAMA */
@@ -3622,6 +3718,7 @@ updategeom(int width, int height)
 			dirty = 1;
 			mons->mw = mons->ww = sw;
 			mons->mh = mons->wh = sh;
+			mons->orientation = (mons->mw < mons->mh);
 			updatebarpos(mons);
 		}
 	}
@@ -3731,9 +3828,6 @@ wintoclient(Window w)
 		for (c = ws->clients; c; c = c->next)
 			if (c->win == w)
 				return c;
-	for (c = stickyws->clients; c; c = c->next)
-		if (c->win == w)
-			return c;
 	return NULL;
 }
 
@@ -3804,8 +3898,9 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
 void
 zoom(const Arg *arg)
 {
-	Client *c = CLIENT, *at = NULL, *cold, *cprevious = NULL, *p;
+	Client *c = CLIENT, *master = NULL;
 	Workspace *ws;
+
 	if (!c)
 		return;
 
@@ -3816,37 +3911,20 @@ zoom(const Arg *arg)
 	if (!ws->layout->arrange || (c && ISFLOATING(c)) || !c)
 		return;
 
-	if (c == nexttiled(ws->clients)) {
-		if (ws->prevzoom && ws->prevzoom->ws != ws)
-			ws->prevzoom = NULL;
-		p = ws->prevzoom;
-		at = findbefore(p);
-		if (at)
-			cprevious = nexttiled(at->next);
-		if (!cprevious || cprevious != p) {
-			ws->prevzoom = NULL;
-			if (!c || !(c = nexttiled(c->next)))
-				return;
-		} else
-			c = cprevious;
-	}
-
-	cold = nexttiled(ws->clients);
-	if (c != cold && !at)
-		at = findbefore(c);
-
-	detach(c);
-	attach(c);
-
-	/* swap windows instead of pushing the previous one down */
-	if (c != cold && at) {
-		ws->prevzoom = cold;
-		if (cold && at != cold) {
-			detach(cold);
-			cold->next = at->next;
-			at->next = cold;
+	if (ismasterclient(c)) {
+		master = c;
+		if (ws->prevzoom && ws->prevzoom->ws == ws) {
+			c = ws->prevzoom;
+		} else {
+			c = nthstack(ws->clients, 1, 1);
 		}
+	} else {
+		master = nexttiled(ws->clients);
 	}
+
+	swap(master, c);
+	ws->prevzoom = master;
+	focus(c);
 
 	arrange(c->ws);
 }

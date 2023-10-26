@@ -89,7 +89,7 @@ togglescratch(const Arg *arg)
 			   not been processed yet, hence we could be processing a scratchpad twice. To avoid
 			   this we detach them and add them to a temporary list (monclients) which is to be
 			   processed later. */
-			if (!SCRATCHPADSTAYONMON(c) && !multimonscratch && c->ws != selws) {
+			if (!SCRATCHPADSTAYONMON(c) && !multimonscratch && c->ws != selws && c->ws != stickyws) {
 				if (SEMISCRATCHPAD(c) && c->linked && !c->win)
 					swapsemiscratchpadclients(c->linked, c);
 				detach(c);
@@ -100,7 +100,7 @@ togglescratch(const Arg *arg)
 					last = last->next = c;
 				else
 					last = monclients = c;
-			} else if (scratchvisible == numscratchpads) {
+			} else if (scratchvisible == numscratchpads && (numscratchpads > 1 || c->ws != selws || selws->sel == c)) {
 				if (SEMISCRATCHPAD(c) && c->linked)
 					swapsemiscratchpadclients(c, c->linked);
 				else {
@@ -109,12 +109,13 @@ togglescratch(const Arg *arg)
 				}
 			} else {
 				XSetWindowBorder(dpy, c->win, scheme[SchemeScratchNorm][ColBorder].pixel);
-				raiseclient(c);
 				if (SEMISCRATCHPAD(c) && c->linked)
 					swapsemiscratchpadclients(c->linked, c);
 				else {
 					removeflag(c, Invisible);
 					showwsclient(c);
+					detachstack(c);
+					attachstack(c);
 				}
 			}
 		}
@@ -135,17 +136,6 @@ togglescratch(const Arg *arg)
 		attachstack(c);
 		removeflag(c, Invisible);
 		showwsclient(c);
-		raiseclient(c);
-	}
-
-	if (!found) {
-		for (c = stickyws->stack; c; c = next) {
-			next = c->snext;
-			if (c->scratchkey != ((char**)arg->v)[0][0])
-				continue;
-			found = c;
-			break;
-		}
 	}
 
 	if (found) {
@@ -171,13 +161,13 @@ togglescratch(const Arg *arg)
 			focus(NULL);
 		}
 		arrange_focus_on_monocle = 1;
-
-		if (multimonscratch || monclients || SEMISCRATCHPAD(c))
+		if (multimonscratch || monclients || SEMISCRATCHPAD(c)) {
 			arrange(NULL);
-		else
+			restack(c->ws);
+		} else {
 			arrange(c->ws);
+		}
 		skipfocusevents();
-		raiseclient(c);
 	} else {
 		spawn(arg);
 	}
