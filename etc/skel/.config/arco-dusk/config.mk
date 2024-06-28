@@ -10,10 +10,6 @@ MANPREFIX = ${PREFIX}/share/man
 X11INC = /usr/X11R6/include
 X11LIB = /usr/X11R6/lib
 
-# FreeBSD (uncomment)
-#X11INC = /usr/local/include
-#X11LIB = /usr/local/lib
-
 # Optional dependency on libxi for mouse related features
 #HAVE_LIBXI = -DHAVE_LIBXI=1
 #XINPUTLIBS = -lXi
@@ -24,6 +20,9 @@ X11LIB = /usr/X11R6/lib
 #FRIBIDIINC = -I/usr/include/fribidi
 #FRIBIDILIBS = -lfribidi
 
+# Optionally set to 1 to use key codes rather than keysyms for keybindings
+USE_KEYCODES = 0
+
 # Xinerama, comment if you don't want it
 XINERAMALIBS  = -lXinerama
 XINERAMAFLAGS = -DXINERAMA
@@ -31,11 +30,6 @@ XINERAMAFLAGS = -DXINERAMA
 # freetype
 FREETYPELIBS = -lfontconfig -lXft
 FREETYPEINC = /usr/include/freetype2
-# FreeBSD (uncomment)
-#FREETYPEINC = /usr/local/include/freetype2
-# OpenBSD (uncomment)
-#FREETYPEINC = ${X11INC}/freetype2
-#KVMLIB = -lkvm
 
 # Needed for the alpha patch and the winicon patch
 XRENDER = -lXrender
@@ -57,15 +51,15 @@ LIBS = -L${X11LIB} -lX11 ${XINERAMALIBS} ${FREETYPELIBS}  ${XRENDER} ${XCBLIBS} 
 # Optional host flag for computer specific configuration
 #HOSTFLAGS = -DHOST=$(shell command -v cksum > /dev/null && hostname | cksum | tr -d ' ')
 
-# flags
-CPPFLAGS = -D_DEFAULT_SOURCE $(HAVE_LIBXI) ${HAVE_FRIBIDI} -D_BSD_SOURCE -D_POSIX_C_SOURCE=200809L -DVERSION=\"${VERSION}\" ${XINERAMAFLAGS} ${HOSTFLAGS}
-#CFLAGS   = -g -std=c99 -pedantic -Wall -O0 ${INCS} ${CPPFLAGS}
-CFLAGS   = -std=c99 -pedantic -Wall -Wno-unused-function -Wno-deprecated-declarations -Os ${INCS} ${CPPFLAGS}
-LDFLAGS  = ${LIBS}
+# Optional compiler optimisations may create smaller binaries and
+# faster code, but increases compile time.
+# See https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html
+#OPTIMISATIONS = -march=native -flto=auto -O3
 
-# Solaris
-#CFLAGS = -fast ${INCS} -DVERSION=\"${VERSION}\"
-#LDFLAGS = ${LIBS}
+# flags
+CPPFLAGS = -D_DEFAULT_SOURCE ${HAVE_LIBXI} ${HAVE_FRIBIDI} -D_BSD_SOURCE -D_POSIX_C_SOURCE=200809L -DUSE_KEYCODES=${USE_KEYCODES} -DVERSION=\"${VERSION}\" ${XINERAMAFLAGS} ${HOSTFLAGS}
+CFLAGS   = ${OPTIMISATIONS} -std=c99 -pedantic -Wall -Wno-unused-function -Wno-deprecated-declarations ${INCS} ${CPPFLAGS}
+LDFLAGS  = ${LIBS}
 
 # compiler and linker
 CC = cc

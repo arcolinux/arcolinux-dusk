@@ -11,11 +11,16 @@ placemouse(const Arg *arg)
 	unsigned long attachmode, prevattachmode;
 	attachmode = prevattachmode = AttachMaster;
 
-	if (!(c = ws->sel) || !ws->layout->arrange) /* no support for placemouse when floating layout is used */
+	c = ws->sel;
+	if (!c)
 		return;
-	if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c)) /* no support placing fullscreen windows by mouse */
+	if (!ws->layout->arrange) /* no support for placemouse when floating layout is used */
+		return;
+	if (ISTRUEFULLSCREEN(c)) /* no support placing fullscreen windows by mouse */
 		return;
 	if (ISSTICKY(c))
+		return;
+	if (ISFIXED(c))
 		return;
 	restack(ws);
 	prevr = c;
@@ -40,6 +45,8 @@ placemouse(const Arg *arg)
 	if (!getrootptr(&x, &y))
 		return;
 
+	LOCK(c);
+
 	do {
 		XMaskEvent(dpy, MOUSEMASK|ExposureMask|SubstructureRedirectMask, &ev);
 		switch (ev.type) {
@@ -49,7 +56,7 @@ placemouse(const Arg *arg)
 			handler[ev.type](&ev);
 			break;
 		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / 60))
+			if ((ev.xmotion.time - lasttime) <= (1000 / PLACEMOUSE_HZ))
 				continue;
 			lasttime = ev.xmotion.time;
 
@@ -103,6 +110,8 @@ placemouse(const Arg *arg)
 		}
 	} while (ev.type != ButtonRelease);
 	XUngrabPointer(dpy, CurrentTime);
+
+	UNLOCK(c);
 
 	if ((w = recttows(ev.xmotion.x, ev.xmotion.y, 1, 1)) && w != c->ws) {
 		detach(c);

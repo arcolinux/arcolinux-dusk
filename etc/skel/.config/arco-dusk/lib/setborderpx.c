@@ -16,9 +16,9 @@ setborderpx(const Arg *arg)
 		c->bw = m->borderpx;
 		if (!ISVISIBLE(c))
 			continue;
-		if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c))
+		if (ISTRUEFULLSCREEN(c))
 			continue;
-		if (!ISFLOATING(c) && ws->layout->arrange)
+		if (ISTILED(c) && ws->layout->arrange)
 			continue;
 
 		resizeclient(c, c->x, c->y, c->w - delta, c->h - delta);

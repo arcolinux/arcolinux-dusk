@@ -91,12 +91,12 @@ initsystray(void)
 	if (disabled(Systray))
 		return 0;
 
-	if (!(systray = (SystrayWin *)calloc(1, sizeof(SystrayWin))))
-		die("fatal: could not malloc() %u bytes\n", sizeof(SystrayWin));
+	systray = (SystrayWin *)ecalloc(1, sizeof(SystrayWin));
 
 	wa.override_redirect = True;
 	wa.event_mask = ButtonPressMask|ExposureMask;
 	wa.border_pixel = 0;
+	wa.background_pixel = 0;
 	systray->h = drw->fonts->h;
 
 	if (!enabled(SystrayNoAlpha)) {
@@ -147,8 +147,7 @@ addsystrayicon(XClientMessageEvent *cme)
 	if (cme->data.l[1] != SYSTEM_TRAY_REQUEST_DOCK)
 		return;
 
-	if (!(c = (Client *)calloc(1, sizeof(Client))))
-		die("fatal: could not malloc() %u bytes\n", sizeof(Client));
+	c = (Client *)ecalloc(1, sizeof(Client));
 
 	if (!(c->win = cme->data.l[2])) {
 		free(c);

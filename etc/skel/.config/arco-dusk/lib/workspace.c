@@ -26,6 +26,13 @@ comboviewwsbyname(const Arg *arg)
 }
 
 void
+comboviewwsbyindex(const Arg *arg)
+{
+	viewwsonmon(getwsbyindex(arg), NULL, combo);
+	combo = 1;
+}
+
+void
 createworkspaces()
 {
 	Workspace *pws, *ws;
@@ -51,8 +58,10 @@ createworkspaces()
 	num_workspaces = i;
 
 	for (m = mons, ws = workspaces; ws; ws = ws->next) {
-		if (ws->mon == NULL)
+		if (ws->mon == NULL) {
 			ws->mon = m;
+			m = (m->next == NULL ? mons : m->next);
+		}
 
 		ws->wx = ws->mon->wx;
 		ws->wy = ws->mon->wy;
@@ -60,11 +69,10 @@ createworkspaces()
 		ws->ww = ws->mon->ww;
 		ws->orientation = ws->mon->orientation;
 
-		if (m->selws == NULL) {
-			m->selws = ws;
-			m->selws->visible = 1;
+		if (ws->mon->selws == NULL) {
+			ws->mon->selws = ws;
+			ws->visible = 1;
 		}
-		m = (m->next == NULL ? mons : m->next);
 	}
 	attachws(stickyws, workspaces);
 	setworkspaceareas();
@@ -83,6 +91,10 @@ createworkspace(int num, const WorkspaceRule *r)
 
 	if (r->monitor != -1) {
 		for (m = mons; m && m->num != r->monitor; m = m->next);
+		if (!m && workspaces_per_mon && r->pinned) {
+			m = dummymon;
+			ws->pinned = r->pinned;
+		}
 		ws->mon = m;
 		if (r->pinned > 0 && m && m->num == r->monitor)
 			ws->pinned = 1;
@@ -91,6 +103,7 @@ createworkspace(int num, const WorkspaceRule *r)
 	strlcpy(ws->name, r->name, sizeof ws->name);
 
 	ws->layout = (r->layout == -1 ? &layouts[0] : &layouts[MIN(r->layout, LENGTH(layouts))]);
+	strlcpy(ws->ltsymbol, ws->layout->symbol, sizeof ws->ltsymbol);
 	ws->prevlayout = &layouts[1 % LENGTH(layouts)];
 	ws->mfact = (r->mfact == -1 ? mfact : r->mfact);
 	ws->nmaster = (r->nmaster == -1 ? nmaster : r->nmaster);
@@ -112,6 +125,28 @@ createworkspace(int num, const WorkspaceRule *r)
 	getworkspacestate(ws);
 
 	return ws;
+}
+
+void
+handleabandoned(Workspace *ws)
+{
+	Workspace *target;
+
+	if (workspaces_per_mon && ws->pinned) {
+		ws->visible = 0;
+		hidewsclients(ws->stack);
+		target = mons->selws;
+		if (!target || target == stickyws)
+			for (target = workspaces; target == stickyws; target = target->next);
+		moveallclientstows(ws, target, 0);
+		ws->mon = dummymon;
+		return;
+	}
+
+	assignworkspacetomonitor(ws, mons);
+	ws->visible = 0;
+	hidewsclients(ws->stack);
+	ws->pinned = 0;
 }
 
 char *
@@ -176,16 +211,29 @@ viewwsmask(Monitor *m, uint64_t wsmask)
 }
 
 void
-storewsmask(int toggleprevious)
+storewsmask(void)
+{
+	Monitor *m = selws ? selws->mon : selmon;
+	uint64_t wsmask = getwsmask(m);
+
+	if (m->prevwsmask == wsmask && m->wsmask)
+		return;
+
+	if (m->prevwsmask)
+		m->wsmask = m->prevwsmask;
+}
+
+void
+togglewsmask(void)
 {
 	Monitor *m = selws->mon;
 	uint64_t wsmask = getwsmask(m);
 
 	if (m->prevwsmask == wsmask && m->wsmask) {
-		if (!monitorchanged && toggleprevious && getallwsmask(m) & m->wsmask)
+		if (!monitorchanged && getallwsmask(m) & m->wsmask) {
 			viewwsmask(m, m->wsmask);
-	} else if (m->prevwsmask)
-		m->wsmask = m->prevwsmask;
+		}
+	}
 
 	monitorchanged = 0;
 }
@@ -205,7 +253,8 @@ hasclients(Workspace *ws)
 	return c != NULL;
 }
 
-int hashidden(Workspace *ws)
+int
+hashidden(Workspace *ws)
 {
 	Client *c;
 
@@ -224,7 +273,19 @@ hasfloating(Workspace *ws)
 	if (!ws)
 		return 0;
 
-	for (c = ws->clients; c && (ISINVISIBLE(c) || SKIPTASKBAR(c) || HIDDEN(c) || !ISFLOATING(c)); c = c->next);
+	for (c = ws->clients; c && (ISINVISIBLE(c) || SKIPTASKBAR(c) || HIDDEN(c) || ISTILED(c)); c = c->next);
+	return c != NULL;
+}
+
+int
+hasfullscreen(Workspace *ws)
+{
+	Client *c;
+
+	if (!ws)
+		return 0;
+
+	for (c = ws->clients; c && !(ISTRUEFULLSCREEN(c) && !HIDDEN(c) && !ISINVISIBLE(c)); c = c->next);
 	return c != NULL;
 }
 
@@ -234,16 +295,13 @@ noborder(Client *c)
 	if (disabled(NoBorders))
 		return 0;
 
+	if (FREEFLOW(c))
+		return 0;
+
+	if (ISTRUEFULLSCREEN(c))
+		return 0;
+
 	if (nexttiled(c->ws->clients) != c || nexttiled(c->next))
-		return 0;
-
-	if (ISFLOATING(c))
-		return 0;
-
-	if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c))
-		return 0;
-
-	if (!c->ws->layout->arrange)
 		return 0;
 
 	return 1;
@@ -321,11 +379,11 @@ hidewsclients(Client *c)
 void
 showwsclient(Client *c)
 {
-	if (ISFLOATING(c) && ISVISIBLE(c)) {
+	if (ISVISIBLE(c) && (FREEFLOW(c) || ISTRUEFULLSCREEN(c))) {
 		if (NEEDRESIZE(c)) {
 			removeflag(c, NeedResize);
 			XMoveResizeWindow(dpy, c->win, c->x, c->y, c->w, c->h);
-		} else if (!ISSTICKY(c) && c->sfx != -9999 && (!ISFULLSCREEN(c) || ISFAKEFULLSCREEN(c))) {
+		} else if (!ISSTICKY(c) && c->sfx != -9999 && !ISTRUEFULLSCREEN(c)) {
 			restorefloats(c);
 		} else {
 			show(c);
@@ -369,6 +427,12 @@ void
 swapwsbyname(const Arg *arg)
 {
 	swapwsclients(selws, getwsbyname(arg));
+}
+
+void
+swapwsbyindex(const Arg *arg)
+{
+	swapwsclients(selws, getwsbyindex(arg));
 }
 
 void
@@ -459,15 +523,19 @@ movetows(Client *c, Workspace *ws, int view_workspace)
 	else
 		focus(NULL);
 
-	if (view_workspace && !ws->visible)
+	if (view_workspace && !ws->visible) {
 		viewwsonmon(ws, ws->mon, 0);
-	else if (ws->visible) {
+		return;
+	}
+
+	if (ws->visible) {
 		arrange(ws);
 		if (view_workspace && hadfocus)
 			warp(hadfocus);
-	} else {
-		drawbar(ws->mon);
+		return;
 	}
+
+	drawbar(ws->mon);
 }
 
 void
@@ -514,9 +582,21 @@ movetowsbyname(const Arg *arg)
 }
 
 void
+movetowsbyindex(const Arg *arg)
+{
+	movetows(selws->sel, getwsbyindex(arg), 1);
+}
+
+void
 sendtowsbyname(const Arg *arg)
 {
 	movetows(selws->sel, getwsbyname(arg), 0);
+}
+
+void
+sendtowsbyindex(const Arg *arg)
+{
+	movetows(selws->sel, getwsbyindex(arg), 0);
 }
 
 void
@@ -526,9 +606,21 @@ movealltowsbyname(const Arg *arg)
 }
 
 void
+movealltowsbyindex(const Arg *arg)
+{
+	moveallclientstows(selws, getwsbyindex(arg), enabled(ViewOnWs));
+}
+
+void
 moveallfromwsbyname(const Arg *arg)
 {
 	moveallclientstows(getwsbyname(arg), selws, 0);
+}
+
+void
+moveallfromwsbyindex(const Arg *arg)
+{
+	moveallclientstows(getwsbyindex(arg), selws, 0);
 }
 
 /* Send client to an adjacent workspace on the current monitor */
@@ -584,10 +676,15 @@ enablewsbyname(const Arg *arg)
 }
 
 void
+enablewsbyindex(const Arg *arg)
+{
+	viewwsonmon(getwsbyindex(arg), NULL, 1);
+}
+
+void
 viewws(const Arg *arg)
 {
 	viewwsonmon((Workspace*)arg->v, NULL, 0);
-	storewsmask(0);
 }
 
 void
@@ -629,6 +726,12 @@ viewwsbyname(const Arg *arg)
 }
 
 void
+viewwsbyindex(const Arg *arg)
+{
+	viewwsonmon(getwsbyindex(arg), NULL, 0);
+}
+
+void
 viewwsonmon(Workspace *ws, Monitor *m, int enablews)
 {
 	int do_warp = 0;
@@ -661,6 +764,7 @@ viewwsonmon(Workspace *ws, Monitor *m, int enablews)
 			m = ws->mon;
 			m->prevwsmask = getwsmask(m);
 			monitorchanged = 1;
+			selmon = m;
 		}
 
 		if (!ws->visible)
@@ -736,6 +840,8 @@ viewwsonmon(Workspace *ws, Monitor *m, int enablews)
 				hidews(w);
 	}
 
+	storewsmask();
+
 	drawws(ws, m, m->prevwsmask, enablews, arrangeall, do_warp);
 }
 
@@ -797,14 +903,31 @@ getwsbyname(const Arg *arg)
 	Workspace *ws;
 	char *wsname = (char*)arg->v;
 	for (ws = workspaces; ws && strcmp(ws->name, wsname) != 0; ws = ws->next);
+	if (workspaces_per_mon && ws && ws->mon == dummymon)
+		return NULL;
 	return ws;
 }
 
 Workspace *
-getwsbyindex(int index)
+getwsbyindex(const Arg *arg)
 {
 	Workspace *ws;
-	for (ws = workspaces; ws && ws->num != index; ws = ws->next);
+	int index = arg->i;
+	int i = 0;
+	for (ws = workspaces; ws; ws = ws->next) {
+		if (ws->mon != selmon || ws == stickyws)
+			continue;
+		if (++i == index)
+			return ws;
+	}
+	return NULL;
+}
+
+Workspace *
+getwsbynum(int num)
+{
+	Workspace *ws;
+	for (ws = workspaces; ws && ws->num != num; ws = ws->next);
 	return ws;
 }
 
@@ -817,11 +940,38 @@ nextmonws(Monitor *mon, Workspace *ws)
 }
 
 Workspace *
+nextoccmonws(Monitor *mon, Workspace *ws)
+{
+	Workspace *w;
+	for (w = ws; w && (w->mon != mon || w == stickyws || w->stack == NULL); w = w->next);
+	return w;
+}
+
+Workspace *
 nextvismonws(Monitor *mon, Workspace *ws)
 {
 	Workspace *w;
 	for (w = ws; w && !(w->mon == mon && w->visible && w != stickyws); w = w->next);
 	return w;
+}
+
+Workspace *
+selectmonws(Monitor *mon)
+{
+	Workspace *ws;
+
+	/* Prioritise the first visible workspace on the given monitor */
+	ws = nextvismonws(mon, workspaces);
+
+	/* Fall back to the first occcupied workspace on the given monitor */
+	if (!ws)
+		ws = nextoccmonws(mon, workspaces);
+
+	/* Fall back to the first workspace on the given monitor */
+	if (!ws)
+		ws = nextmonws(mon, workspaces);
+
+	return ws;
 }
 
 void
@@ -875,11 +1025,11 @@ redistributeworkspaces(void)
 
 	/* Set selected workspaces for monitors, if not already set */
 	for (m = mons; m; m = m->next) {
-		if (m->selws)
+		if (m->selws) {
+			m->selws->visible = 1;
 			continue;
-		ws = nextvismonws(m, workspaces);
-		if (!ws)
-			ws = nextmonws(m, workspaces);
+		}
+		ws = selectmonws(m);
 		if (ws) {
 			m->selws = ws;
 			m->selws->visible = 1;
@@ -911,7 +1061,7 @@ reorientworkspace(Workspace *ws, int orientation)
 void
 reviewworkspaces(void)
 {
-	Workspace *ws;
+	Workspace *ws, *sel;
 	Monitor *m;
 
 	/* Make sure that at least one workspace is visible on each monitor.
@@ -920,15 +1070,17 @@ reviewworkspaces(void)
 		if (m->selws && m->selws->mon != m)
 			m->selws = NULL;
 
-		ws = nextvismonws(m, workspaces);
-		if (!ws)
-			ws = nextmonws(m, workspaces);
-		if (ws) {
-			m->selws = ws;
-			m->selws->visible = 1;
+		sel = selectmonws(m);
+		if (sel) {
+			m->selws = sel;
+			sel->visible = 1;
+
 			/* Hide the rest, if any */
-			while ((ws = nextvismonws(m, ws->next))) {
+			for (ws = nextvismonws(m, workspaces); ws; ws = nextvismonws(m, ws->next)) {
+				if (ws == sel)
+					continue;
 				ws->visible = 0;
+				hidewsclients(ws->stack);
 			}
 		}
 	}

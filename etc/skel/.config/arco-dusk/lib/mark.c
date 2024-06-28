@@ -46,7 +46,7 @@ markall(const Arg *arg)
 		if ((arg->i == 2 && !HIDDEN(c)) || (arg->i != 2 && HIDDEN(c)))
 			continue;
 
-		if (arg->i == 1 && !ISFLOATING(c))
+		if (arg->i == 1 && ISTILED(c))
 			continue;
 
 		markclient(c);
@@ -82,7 +82,7 @@ markmouse(const Arg *arg)
 			handler[ev.type](&ev);
 			break;
 		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / 60))
+			if ((ev.xmotion.time - lasttime) <= (1000 / MARKMOUSE_HZ))
 				continue;
 			lasttime = ev.xmotion.time;
 

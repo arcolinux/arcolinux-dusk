@@ -6,6 +6,81 @@ clientptr(Client *c)
 	return tc;
 }
 
+/* Calculates the position of a client in a workspace.
+ *
+ *   nth_client   - the position of the given client in the client list
+ *   nth_tiled    - the tiled position of the client
+ *   nth_floating - the floating position of the client
+ *   nth_master   - the nth position of the client in the master stack
+ *   nth_stack    - the nth position of the client in the stack
+ *   num_clients  - total number of clients in the workspace
+ *   num_tiled    - total number of tiled clients
+ *   num_floating - total number of floating clients
+ *   num_master   - total number of master clients
+ *   num_stack    - total number of stack clients
+ */
+void
+getclientindices(
+	Client *c,
+	int *nth_client,
+	int *nth_tiled,
+	int *nth_floating,
+	int *nth_master,
+	int *nth_stack,
+	int *num_clients,
+	int *num_tiled,
+	int *num_floating,
+	int *num_master,
+	int *num_stack
+
+) {
+	Workspace *ws = c->ws;
+	Client *s;
+	int nc = 0, nt = 0, nf = 0, nm = 0, ns = 0;
+	int nthc = 0, ntht = 0, nthf = 0, nthm = 0, nths = 0;
+
+	for (s = ws->clients; s; s = s->next) {
+
+		if (!ISVISIBLE(s))
+			continue;
+
+		nc++;
+
+		if (ISTILED(s)) {
+			nt++;
+			if (nt <= ws->nmaster) {
+				nm++;
+			} else {
+				ns++;
+			}
+		} else {
+			nf++;
+		}
+
+		if (c == s) {
+			nthc = nc;
+			if (ISTILED(c)) {
+				ntht = nt;
+				nthm = ns ? 0 : nm;
+				nths = ns;
+			} else {
+				nthf = nf;
+			}
+		}
+	}
+
+	*nth_client = nthc;
+	*nth_tiled = ntht;
+	*nth_floating = nthf;
+	*nth_master = nthm;
+	*nth_stack = nths;
+	*num_clients = nc;
+	*num_tiled = nt;
+	*num_floating = nf;
+	*num_master = nm;
+	*num_stack = ns;
+}
+
 int
 ismasterclient(Client *client)
 {
@@ -77,6 +152,28 @@ nthtiled(Client *c, int n, int reduce)
 	}
 
 	return c;
+}
+
+Client *
+inctiled(Client *c, int n)
+{
+	Client *f;
+
+	if (!c)
+		return NULL;
+
+	if (n > 0) {
+		f = nexttiled(c->next);
+		if (!f) {
+			f = nexttiled(c->ws->clients);
+		}
+	} else {
+		f = prevtiled(c);
+		if (!f) {
+			f = lasttiled(c->ws->clients);
+		}
+	}
+	return f;
 }
 
 Client *

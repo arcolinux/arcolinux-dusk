@@ -6,8 +6,6 @@ include config.mk
 SRC = drw.c dusk.c util.c
 OBJ = ${SRC:.c=.o}
 
-# FreeBSD users, prefix all ifdef, else and endif statements with a . for this to work (e.g. .ifdef)
-
 all: dusk duskc
 
 .c.o:
@@ -19,22 +17,14 @@ config.h:
 	cp config.def.h $@
 
 dusk: ${OBJ}
-	${CC} -O3 -march=native -o $@ ${OBJ} ${LDFLAGS}
+	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 duskc:
 	${CC} -o $@ lib/ipc/duskc.c ${LDFLAGS}
 
 clean:
-	rm -f dusk ${OBJ} dusk-${VERSION}.tar.gz
+	rm -f dusk ${OBJ}
 	rm -f duskc
-
-dist: clean
-	mkdir -p dusk-${VERSION}
-	cp -R LICENSE Makefile README config.def.h config.mk\
-		dusk.1 drw.h util.h ${SRC} dusk.png transient.c dusk-${VERSION}
-	tar -cf dusk-${VERSION}.tar dusk-${VERSION}
-	gzip dusk-${VERSION}.tar
-	rm -rf dusk-${VERSION}
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
@@ -51,4 +41,4 @@ uninstall:
 		${DESTDIR}${MANPREFIX}/man1/dusk.1\
 		/usr/share/xsessions/dusk.desktop
 
-.PHONY: all clean dist install uninstall
+.PHONY: all clean install uninstall

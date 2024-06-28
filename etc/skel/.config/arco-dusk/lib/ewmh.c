@@ -227,7 +227,7 @@ setdesktopnames(void)
 void
 setfloatinghint(Client *c)
 {
-	unsigned int floating[1] = {ISFLOATING(c) || !c->ws->layout->arrange ? 1 : 0};
+	unsigned int floating[1] = {FREEFLOW(c) ? 1 : 0};
 	XChangeProperty(dpy, c->win, duskatom[IsFloating], XA_CARDINAL, 32, PropModeReplace, (unsigned char *)floating, 1);
 }
 
@@ -394,6 +394,8 @@ getworkspacestate(Workspace *ws)
 		/* See bit layout in the persistworkspacestate function */
 		mon = (settings >> 8) & 0x7;
 		for (m = mons; m && m->num != mon; m = m->next);
+		if (!m && workspaces_per_mon && mon == dummymon->num)
+			m = dummymon;
 		if (m) {
 			ws->mon = m;
 			ws->visible = settings & 0x1;

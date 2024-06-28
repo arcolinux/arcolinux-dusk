@@ -10,12 +10,12 @@ dragcfact(const Arg *arg)
 
 	if (!(c = ws->sel))
 		return;
-	if (ISFLOATING(c)) {
+	if (FREEFLOW(c)) {
 		resizemouse(arg);
 		return;
 	}
 
-	if (ISFULLSCREEN(c) && !ISFAKEFULLSCREEN(c)) /* no support resizing fullscreen windows by mouse */
+	if (ISTRUEFULLSCREEN(c)) /* no support resizing fullscreen windows by mouse */
 		return;
 	restack(ws);
 
@@ -36,7 +36,7 @@ dragcfact(const Arg *arg)
 			handler[ev.type](&ev);
 			break;
 		case MotionNotify:
-			if ((ev.xmotion.time - lasttime) <= (1000 / 60))
+			if ((ev.xmotion.time - lasttime) <= (1000 / DRAGCFACT_HZ))
 				continue;
 			lasttime = ev.xmotion.time;
 			if (prev_x == -999999) {

@@ -39,7 +39,7 @@ static const double resizeopacity        = 0;   /* client opacity when being res
 static const double placeopacity         = 0;   /* client opacity when being placed, 0 means don't apply opacity */
 
 /* Indicators: see lib/bar_indicators.h for options */
-static int wsindicatortype               = INDICATOR_BOTTOM_BAR_SLIM;
+static int wsindicatortype               = INDICATOR_NONE;
 static int wspinnedindicatortype         = INDICATOR_NONE;
 static int fakefsindicatortype           = INDICATOR_PLUS;
 static int floatfakefsindicatortype      = INDICATOR_PLUS_AND_LARGER_SQUARE;
@@ -61,6 +61,15 @@ static int lowercase_workspace_labels = 1;                /* whether to change w
 static int prefer_window_icons_over_workspace_labels = 0; /* whether to use window icons instead of labels if present */
 static int swap_occupied_workspace_label_format_strings = 0; /* 0 gives "icon: label", 1 gives "label: icon" */
 
+/* This determines what happens with pinned workspaces on a monitor when that monitor is removed.
+ *   0 - the workspaces becomes unpinned and is moved to another monitor or
+ *   1 - the workspace clients are moved to the selected workspace on the first monitor, but
+ *       the workspace itself is hidden
+ *
+ * Non-pinned workspaces are always redistributed among the remaining monitors.
+ */
+static const int workspaces_per_mon = 0;
+
 /* See util.h for options */
 static uint64_t functionality = 0
 //	|AutoReduceNmaster // automatically reduce the number of master clients if one is closed
@@ -73,9 +82,9 @@ static uint64_t functionality = 0
 	|Swallow // allows X applications started from the command line to swallow the terminal
 	|SwallowFloating // allow floating windows to swallow the terminal by default
 	|CenteredWindowName // center the window titles on the bar
-//	|BarActiveGroupBorderColor // use border color of active group, otherwise title scheme is used
-	|BarMasterGroupBorderColor // use border color of master group, otherwise title scheme is used
-	|FlexWinBorders // use the SchemeFlex* color schemes, falls back to SchemeTitle* if disabled
+//	|BarActiveGroupBorderColor // use border color of active group for the bar, otherwise normal scheme is used
+//	|BarMasterGroupBorderColor // use border color of master group for the bar, otherwise normal scheme is used
+//	|FlexWinBorders // use the SchemeFlex* color schemes, falls back to SchemeTitle* if disabled
 	|SpawnCwd // spawn applications in the currently selected client's working directory
 	|ColorEmoji // enables color emoji support (removes Xft workaround)
 //	|Status2DNoAlpha // option to not use alpha when drawing status2d status
@@ -105,6 +114,7 @@ static uint64_t functionality = 0
 //	|RioDrawSpawnAsync // spawn the application alongside rather than after drawing area using slop
 //	|RestrictFocusstackToMonitor // restrict focusstack to only operate within the monitor, otherwise focus can drift between monitors
 //	|WinTitleIcons // adds application icons to window titles in the bar
+//	|StackerIcons // adds a stacker icon hints in window titles
 //	|WorkspaceLabels // adds the class of the master client next to the workspace icon
 //	|WorkspacePreview // adds preview images when hovering workspace icons in the bar
 ;
@@ -116,12 +126,13 @@ static int flexwintitle_floatweight      = 0;  // floating window title weight, 
 static int flexwintitle_separator        = 0;  // width of client separator
 
 static const char *fonts[]               = { "monospace:size=10" };
-static       char dmenufont[]            = "monospace:size=10";
+static       char dmenufont[60]          = "monospace:size=10";
 
 static char dmenunormfgcolor[] = "#C6BDBD";
 static char dmenunormbgcolor[] = "#180A13";
 static char dmenuselfgcolor[] = "#FFF7D4";
 static char dmenuselbgcolor[] = "#440000";
+static char dmenubordercolor[] = "#492B2D";
 
 /* Xresources preferences to load at startup. */
 static const ResourcePref resources[] = {
@@ -129,75 +140,28 @@ static const ResourcePref resources[] = {
 	{ "dmenu.norm.bg.color", STRING, &dmenunormbgcolor },
 	{ "dmenu.sel.fg.color", STRING, &dmenuselfgcolor },
 	{ "dmenu.sel.bg.color", STRING, &dmenuselbgcolor },
+	{ "dmenu.border.bg.color", STRING, &dmenubordercolor },
 	{ "dmenu.font", STRING, &dmenufont },
 };
 
+/* Default opacity levels         fg      bg     border */
 unsigned int default_alphas[] = { OPAQUE, 0xd0U, OPAQUE };
 
 static char *colors[SchemeLast][4] = {
-	/*                       fg         bg         border     resource prefix */
-	[SchemeNorm]         = { "#BE89AE", "#180A13", "#444444", "norm" },
-	[SchemeSel]          = { "#FFF7D4", "#440000", "#440000", "sel" },
-	[SchemeTitleNorm]    = { "#C6BDBD", "#180A13", "#180A13", "titlenorm" },
-	[SchemeTitleSel]     = { "#FFF7D4", "#440000", "#440000", "titlesel" },
-	[SchemeWsNorm]       = { "#BE89AE", "#180A13", "#000000", "wsnorm" },
-	[SchemeWsVisible]    = { "#BE89AE", "#5E294B", "#000000", "wsvis" },
-	[SchemeWsSel]        = { "#D8B2CD", "#6F3A5C", "#000000", "wssel" },
-	[SchemeWsOcc]        = { "#BE89AE", "#180A13", "#000000", "wsocc" },
-	[SchemeHidNorm]      = { "#c278b6", "#222222", "#000000", "hidnorm" },
-	[SchemeHidSel]       = { "#D288C6", "#111111", "#000000", "hidsel" },
-	[SchemeUrg]          = { "#bbbbbb", "#222222", "#d10f3f", "urg" },
-	[SchemeMarked]       = { "#615656", "#ECB820", "#ECB820", "marked" },
-	[SchemeScratchNorm]  = { "#FFF7D4", "#664C67", "#77547E", "scratchnorm" },
-	[SchemeScratchSel]   = { "#FFF7D4", "#77547E", "#894B9F", "scratchsel" },
-	[SchemeFlexActTTB]   = { "#FFF7D4", "#440000", "#440000", "act.TTB" },
-	[SchemeFlexActLTR]   = { "#FFF7D4", "#440044", "#440044", "act.LTR" },
-	[SchemeFlexActMONO]  = { "#FFF7D4", "#000044", "#000044", "act.MONO" },
-	[SchemeFlexActGRID]  = { "#FFF7D4", "#004400", "#004400", "act.GRID" },
-	[SchemeFlexActGRIDC] = { "#FFF7D4", "#004400", "#004400", "act.GRIDC" },
-	[SchemeFlexActGRD1]  = { "#FFF7D4", "#004400", "#004400", "act.GRD1" },
-	[SchemeFlexActGRD2]  = { "#FFF7D4", "#004400", "#004400", "act.GRD2" },
-	[SchemeFlexActGRDM]  = { "#FFF7D4", "#507711", "#507711", "act.GRDM" },
-	[SchemeFlexActHGRD]  = { "#FFF7D4", "#b97711", "#b97711", "act.HGRD" },
-	[SchemeFlexActDWDL]  = { "#FFF7D4", "#004444", "#004444", "act.DWDL" },
-	[SchemeFlexActDWDLC] = { "#FFF7D4", "#004444", "#004444", "act.DWDLC" },
-	[SchemeFlexActSPRL]  = { "#FFF7D4", "#444400", "#444400", "act.SPRL" },
-	[SchemeFlexActSPRLC] = { "#FFF7D4", "#444400", "#444400", "act.SPRLC" },
-	[SchemeFlexActTTMI]  = { "#FFF7D4", "#B81616", "#B81616", "act.TTMI" },
-	[SchemeFlexActTTMIC] = { "#FFF7D4", "#B81616", "#B81616", "act.TTMIC" },
-	[SchemeFlexActFloat] = { "#FFF7D4", "#4C314C", "#4C314C", "act.float" },
-	[SchemeFlexInaTTB]   = { "#C6BDBD", "#330000", "#330000", "norm.TTB" },
-	[SchemeFlexInaLTR]   = { "#C6BDBD", "#330033", "#330033", "norm.LTR" },
-	[SchemeFlexInaMONO]  = { "#C6BDBD", "#000033", "#000033", "norm.MONO" },
-	[SchemeFlexInaGRID]  = { "#C6BDBD", "#003300", "#003300", "norm.GRID" },
-	[SchemeFlexInaGRIDC] = { "#C6BDBD", "#003300", "#003300", "norm.GRIDC" },
-	[SchemeFlexInaGRD1]  = { "#C6BDBD", "#003300", "#003300", "norm.GRD1" },
-	[SchemeFlexInaGRD2]  = { "#C6BDBD", "#003300", "#003300", "norm.GRD2" },
-	[SchemeFlexInaGRDM]  = { "#C6BDBD", "#506600", "#506600", "norm.GRDM" },
-	[SchemeFlexInaHGRD]  = { "#C6BDBD", "#b96600", "#b96600", "norm.HGRD" },
-	[SchemeFlexInaDWDL]  = { "#C6BDBD", "#003333", "#003333", "norm.DWDL" },
-	[SchemeFlexInaDWDLC] = { "#C6BDBD", "#003333", "#003333", "norm.DWDLC" },
-	[SchemeFlexInaSPRL]  = { "#C6BDBD", "#333300", "#333300", "norm.SPRL" },
-	[SchemeFlexInaSPRLC] = { "#C6BDBD", "#333300", "#333300", "norm.SPRLC" },
-	[SchemeFlexInaTTMI]  = { "#C6BDBD", "#B32727", "#B32727", "norm.TTMI" },
-	[SchemeFlexInaTTMIC] = { "#C6BDBD", "#B32727", "#B32727", "norm.TTMIC" },
-	[SchemeFlexInaFloat] = { "#C6BDBD", "#4C314C", "#4C314C", "norm.float" },
-	[SchemeFlexSelTTB]   = { "#FFF7D4", "#550000", "#550000", "sel.TTB" },
-	[SchemeFlexSelLTR]   = { "#FFF7D4", "#550055", "#550055", "sel.LTR" },
-	[SchemeFlexSelMONO]  = { "#FFF7D4", "#212171", "#212171", "sel.MONO" },
-	[SchemeFlexSelGRID]  = { "#FFF7D4", "#005500", "#005500", "sel.GRID" },
-	[SchemeFlexSelGRIDC] = { "#FFF7D4", "#005500", "#005500", "sel.GRIDC" },
-	[SchemeFlexSelGRD1]  = { "#FFF7D4", "#005500", "#005500", "sel.GRD1" },
-	[SchemeFlexSelGRD2]  = { "#FFF7D4", "#005500", "#005500", "sel.GRD2" },
-	[SchemeFlexSelGRDM]  = { "#FFF7D4", "#508822", "#508822", "sel.GRDM" },
-	[SchemeFlexSelHGRD]  = { "#FFF7D4", "#b98822", "#b98822", "sel.HGRD" },
-	[SchemeFlexSelDWDL]  = { "#FFF7D4", "#005555", "#005555", "sel.DWDL" },
-	[SchemeFlexSelDWDLC] = { "#FFF7D4", "#005555", "#005555", "sel.DWDLC" },
-	[SchemeFlexSelSPRL]  = { "#FFF7D4", "#555500", "#555500", "sel.SPRL" },
-	[SchemeFlexSelSPRLC] = { "#FFF7D4", "#555500", "#555500", "sel.SPRLC" },
-	[SchemeFlexSelTTMI]  = { "#FFF7D4", "#C91717", "#C91717", "sel.TTMI" },
-	[SchemeFlexSelTTMIC] = { "#FFF7D4", "#C91717", "#C91717", "sel.TTMIC" },
-	[SchemeFlexSelFloat] = { "#FFF7D4", "#5C415C", "#5C415C", "sel.float" },
+	/*                       fg         bg         border    */
+	[SchemeNorm]         = { "#D9CFC5", "#492B2D", "#492B2D" },
+	[SchemeTitleNorm]    = { "#D9CFC5", "#492B2D", "#643B3E" },
+	[SchemeTitleSel]     = { "#D9CFC5", "#82363A", "#82363A" },
+	[SchemeScratchNorm]  = { "#D9CFC5", "#492B2D", "#643B3E" },
+	[SchemeScratchSel]   = { "#D9CFC5", "#82363A", "#82363A" },
+	[SchemeHidNorm]      = { "#D9CFC5", "#492B2D", "#000000" },
+	[SchemeHidSel]       = { "#D9CFC5", "#82363A", "#000000" },
+	[SchemeUrg]          = { "#E0E0E0", "#A23419", "#A23419" },
+	[SchemeMarked]       = { "#DDC470", "#724559", "#724559" },
+	[SchemeWsNorm]       = { "#D9CFC5", "#492B2D", "#000000" },
+	[SchemeWsVisible]    = { "#D9CFC5", "#82363A", "#000000" },
+	[SchemeWsSel]        = { "#D9CFC5", "#82363A", "#000000" },
+	[SchemeWsOcc]        = { "#D9CFC5", "#492B2D", "#000000" },
 };
 
 /* List of programs to start automatically during startup only. Note that these will not be
@@ -410,13 +374,13 @@ static const WorkspaceRule wsrules[] = {
 	/*                                                                     ------------------------------- schemes ------------------------------- ------ icons ------
 	   name,  monitor,  pinned,  layout,  mfact,  nmaster,  nstack,  gaps, default,          visible,          selected,         occupied,         def,   vac,  occ,  */
 	{  "1",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "1",   "",   "[1]", },
-	{  "2",   -1,       0,       9,       .80,   -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "2",   "",   "[2]", },
+	{  "2",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "2",   "",   "[2]", },
 	{  "3",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "3",   "",   "[3]", },
 	{  "4",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "4",   "",   "[4]", },
 	{  "5",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "5",   "",   "[5]", },
 	{  "6",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "6",   "",   "[6]", },
-	{  "7",   -1,       0,       10,      .75,   -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "7",   "",   "[7]", },
-	{  "8",   -1,       0,       1,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "8",   "",   "[8]", },
+	{  "7",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "7",   "",   "[7]", },
+	{  "8",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "8",   "",   "[8]", },
 	{  "9",   -1,       0,       0,       -1,    -1,       -1,      -1,    SchemeWsNorm,     SchemeWsVisible,  SchemeWsSel,      SchemeWsOcc,      "9",   "",   "[9]", },
 };
 
@@ -480,6 +444,17 @@ static const Layout layouts[] = {
 	{ KeyPress,   MOD, XK_a, ACTION, {.i = 3 } }, \
 	{ KeyPress,   MOD, XK_z, ACTION, {.i = LASTTILED } },
 
+/* This relates to the StackerIcons functionality and should mirror the STACKKEYS list above. */
+static const StackerIcon stackericons[] = {
+	{ "[j]", {.i = INC(+1) } },
+	{ "[k]", {.i = INC(-1) } },
+	{ "[s]", {.i = PREVSEL } },
+	{ "[w]", {.i = 1 } },
+	{ "[e]", {.i = 2 } },
+	{ "[a]", {.i = 3 } },
+	{ "[z]", {.i = LASTTILED } },
+};
+
 /* Helper macros for spawning commands */
 #define SHCMD(cmd) { .v = (const char*[]){ NULL, "/bin/sh", "-c", cmd, NULL } }
 #define CMD(...)   { .v = (const char*[]){ NULL, __VA_ARGS__, NULL } }
@@ -490,13 +465,13 @@ static const char *browser[]  = { NULL, "firefox", NULL };
 static const char *logout[]  = { NULL, "archlinux-logout", NULL };
 static const char *termcmd[]  = { NULL, "st", NULL };
 static const char *dmenucmd[] = {
-	NULL,
 	"dmenu_run",
 	"-fn", dmenufont,
 	"-nb", dmenunormbgcolor,
 	"-nf", dmenunormfgcolor,
 	"-sb", dmenuselbgcolor,
 	"-sf", dmenuselfgcolor,
+//	"-bb", dmenubordercolor,
 	NULL
 };
 static const char *spcmd_w[] = {"w", "st", "-n", "spterm (w)", "-g", "120x34", NULL };
@@ -512,7 +487,7 @@ static Key keys[] = {
 	{ KeyPress,   Ctrl|Alt,              XK_Return,       spawn,                  {.v = termcmd } }, // spawn a terminal
 	{ KeyPress,   Ctrl|Alt,              XK_t,            spawn,                  {.v = termcmd } }, // spawn a terminal
 	{ KeyPress,   Ctrl|Alt,              XK_f,            spawn,                  {.v = browser } }, // spawn browser
-	{ KeyPress,   MODKEY|Shift,                 XK_Return,       spawn,                  {.v = filemanager } }, // draw/spawn a terminal
+	{ KeyPress,   MODKEY|Shift,                 XK_Return,       spawn,                  {.v = filemanager } }, // launch filemanager
 	{ KeyPress,   MODKEY,                       XK_x,            spawn,                  {.v = logout } }, // archlinux-logout
 	{ KeyPress,   MODKEY|Shift,                 XK_r,            restart,                {0} }, // restart dusk
 	{ KeyPress,   MODKEY|Shift,                 XK_q,            killclient,             {0} }, // close the currently focused window
@@ -717,6 +692,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( clientstomon, ARG_TYPE_SINT ),
 	IPCCOMMAND( cyclelayout, ARG_TYPE_SINT ),
 	IPCCOMMAND( enable, ARG_TYPE_STR ),
+	IPCCOMMAND( enablewsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( enablewsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( defaultgaps, ARG_TYPE_NONE ),
 	IPCCOMMAND( disable, ARG_TYPE_STR ),
@@ -743,9 +719,13 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( mark, ARG_TYPE_NONE ),
 	IPCCOMMAND( markall, ARG_TYPE_SINT ), // 0 = mark all, 1 = mark floating, 2 = mark hidden
 	IPCCOMMAND( mirrorlayout, ARG_TYPE_NONE ),
+	IPCCOMMAND( movetowsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( movetowsbyname, ARG_TYPE_STR ),
+	IPCCOMMAND( sendtowsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( sendtowsbyname, ARG_TYPE_STR ),
+	IPCCOMMAND( movealltowsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( movealltowsbyname, ARG_TYPE_STR ),
+	IPCCOMMAND( moveallfromwsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( moveallfromwsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( movewsdir, ARG_TYPE_SINT ),
 	IPCCOMMAND( rotatelayoutaxis, ARG_TYPE_SINT ),
@@ -772,6 +752,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( stackswap, ARG_TYPE_SINT ),
 	IPCCOMMAND( swallow, ARG_TYPE_NONE ),
 	IPCCOMMAND( switchcol, ARG_TYPE_NONE ),
+	IPCCOMMAND( swapwsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( swapwsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( toggle, ARG_TYPE_STR ), // toggle functionality on and off
 	IPCCOMMAND( togglebar, ARG_TYPE_NONE ),
@@ -782,6 +763,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( togglefloating, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglefullscreen, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglegaps, ARG_TYPE_NONE ),
+	IPCCOMMAND( togglekeybindings, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglemark, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglenomodbuttons, ARG_TYPE_NONE ),
 	IPCCOMMAND( togglepinnedws, ARG_TYPE_NONE ),
@@ -796,6 +778,7 @@ static IPCCommand ipccommands[] = {
 	IPCCOMMAND( viewallwsonmon, ARG_TYPE_NONE ),
 	IPCCOMMAND( viewalloccwsonmon, ARG_TYPE_NONE ),
 	IPCCOMMAND( viewselws, ARG_TYPE_NONE ),
+	IPCCOMMAND( viewwsbyindex, ARG_TYPE_SINT ),
 	IPCCOMMAND( viewwsbyname, ARG_TYPE_STR ),
 	IPCCOMMAND( viewwsdir, ARG_TYPE_SINT ),
 	IPCCOMMAND( xrdb, ARG_TYPE_NONE ), // reload xrdb / Xresources

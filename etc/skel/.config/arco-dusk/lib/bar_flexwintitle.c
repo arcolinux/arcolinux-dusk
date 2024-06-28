@@ -43,26 +43,26 @@ getclientcounts(Workspace *ws, int *n, int *clientsnmaster, int *clientsnstack, 
 				ch++;
 			continue;
 		}
-		if (ISFLOATING(c)) {
-			if (flexwintitle_floatweight)
-				cf++;
+		if (ISTILED(c)) {
+			switch (c->area) {
+			case MASTER:
+				++cm;
+				break;
+			case STACK:
+				++cs1;
+				break;
+			case STACK2:
+				++cs2;
+				break;
+			default:
+				++cm;
+				break;
+			}
 			continue;
 		}
 
-		switch (c->area) {
-		case MASTER:
-			++cm;
-			break;
-		case STACK:
-			++cs1;
-			break;
-		case STACK2:
-			++cs2;
-			break;
-		default:
-			++cm;
-			break;
-		}
+		if (flexwintitle_floatweight)
+			cf++;
 	}
 	*n = cm + cs1 + cs2 + cf + ch;
 
@@ -135,8 +135,8 @@ flextitledrawarea(Workspace *ws, Client *c, int x, int w, int num_clients, int t
 			!SKIPTASKBAR(c) &&
 			!ISINVISIBLE(c) &&
 			(
-				(draw_tiled && !ISFLOATING(c) && !HIDDEN(c)) ||
-				(draw_floating && ISFLOATING(c) && !HIDDEN(c)) ||
+				(draw_tiled && ISTILED(c) && !HIDDEN(c)) ||
+				(draw_floating && !ISTILED(c) && !HIDDEN(c)) ||
 				(draw_hidden && HIDDEN(c))
 			)
 		) {
@@ -167,10 +167,25 @@ flextitledraw(Workspace *ws, Client *c, int unused, int x, int w, int tabscheme,
 	int lpad = 0;
 	int tx = x;
 	int tw = w;
-	static unsigned int textw_single_char = 0;
+	int icon2dwidth = 0;
+	int titlewidth = TEXTW(c->name);
+	int max_items = 4;
+	int order[max_items];
+	int idx = 0;
+	int i;
+
+	const StackerIcon *stackericon = NULL;
+	static int textw_single_char = 0;
 	if (!textw_single_char)
 		textw_single_char = TEXTW("A");
 
+	if (enabled(StackerIcons) && c->ws == selws && ISVISIBLE(c)) {
+		if ((stackericon = getstackericonforclient(c))) {
+			icon2dwidth = TEXT2DW(stackericon->icon);
+		}
+	}
+
+	/* This works out the colour scheme to use and fills the background with a solid block */
 	prevscheme = barg->lastscheme;
 	barg->lastscheme = clientscheme(c, c->ws->sel);
 
@@ -185,12 +200,13 @@ flextitledraw(Workspace *ws, Client *c, int unused, int x, int w, int tabscheme,
 	XSetForeground(drw->dpy, drw->gc, drw->scheme[ColBg].pixel);
 	XFillRectangle(drw->dpy, drw->drawable, drw->gc, x, barg->y, w, barg->h);
 
-	if (w < textw_single_char + lrpad) { // reduce text padding if wintitle is too small
+	/* This works out how much padding to add on the left side before drawing the window title */
+	if (w < textw_single_char + lrpad) { // reduce text padding if title is too small
 		lpad = MAX(0, (w - textw_single_char) / 2);
 		tx += lpad;
 		tw -= lpad;
-	} else if (enabled(CenteredWindowName) && TEXTW(c->name) + lrpad + ipad < w) {
-		lpad = (w - TEXTW(c->name) - ipad) / 2;
+	} else if (enabled(CenteredWindowName) && titlewidth + icon2dwidth + lrpad + ipad < w) {
+		lpad = (w - titlewidth - icon2dwidth - ipad) / 2;
 		tx += lpad;
 		tw -= lpad;
 	} else {
@@ -198,14 +214,72 @@ flextitledraw(Workspace *ws, Client *c, int unused, int x, int w, int tabscheme,
 		tw -= lrpad;
 	}
 
- 	if (ipad) {
-		drw_pic(drw, tx, barg->y + (barg->h - c->ich) / 2, c->icw, c->ich, c->icon);
-		tx += ipad;
-		tw -= ipad;
- 	}
+	enum {
+		window_icon = 1,
+		icon_spacing = 2,
+		stacker_icon = 3,
+		window_title = 4,
+	};
 
- 	if (tw >= textw_single_char)
- 		drw_text(drw, tx, barg->y, tw, barg->h, 0, c->name, 0, 1);
+	/* The below determines the order of the window title components */
+	if (stackericon && stackericon->pos == StackerLeftOfWindowIcon)
+		order[idx++] = stacker_icon;
+
+	if (ipad)
+		order[idx++] = window_icon;
+
+	if (stackericon && stackericon->pos == StackerRightOfWindowIcon) {
+		order[idx++] = stacker_icon;
+		order[idx++] = icon_spacing;
+	} else if (ipad) {
+		order[idx++] = icon_spacing;
+	}
+
+	if (stackericon && stackericon->pos == StackerTitlePrefix)
+		order[idx++] = stacker_icon;
+
+	order[idx++] = window_title;
+
+	if (stackericon && stackericon->pos == StackerTitleSuffix)
+		order[idx++] = stacker_icon;
+
+	if (stackericon && stackericon->pos == StackerTitleEllipsis)
+		order[idx++] = stacker_icon;
+
+	/* Then loop through and draw the title components in the given order */
+	for (i = 0; i < max_items && order[i]; i++) {
+
+		switch (order[i]) {
+		case window_icon:
+			drw_pic(drw, tx, barg->y + (barg->h - c->ich) / 2, c->icw, c->ich, c->icon);
+			tx += c->icw;
+			tw -= c->icw;
+			break;
+		case icon_spacing:
+			tx += iconspacing;
+			tw -= iconspacing;
+			break;
+		case window_title:
+			drw_text(drw, tx, barg->y, tw, barg->h, 0, c->name, 0, 1);
+			tx += titlewidth;
+			tw -= titlewidth;
+			break;
+		case stacker_icon:
+			if (tw < textw_single_char) {
+				if (stackericon->pos != StackerTitleEllipsis)
+					break;
+				tx = x + w - icon2dwidth;
+				tw = icon2dwidth;
+			}
+
+			drw_2dtext(drw, tx, barg->y, tw, barg->h, 0, stackericon->icon, 0, 1, barg->lastscheme);
+			tx += icon2dwidth;
+			tw -= icon2dwidth;
+			break;
+		}
+
+	}
+
 	drawstateindicator(ws, c, 1, x, barg->y, w, barg->h, 0, 0);
 }
 
@@ -265,89 +339,104 @@ flextitlecalculate(
 
 	/* floating mode */
 	if (!ws->layout->arrange) {
-		flextitledrawarea(ws, ws->clients, offx, tabw, n, 0, flexwintitle_masterweight, flexwintitle_hiddenweight, flexwintitle_floatweight, passx, tabfn, arg, a); // floating
+		flextitledrawarea(
+			ws,
+			ws->clients,
+			offx,
+			tabw,
+			n,
+			0,
+			flexwintitle_masterweight,
+			flexwintitle_hiddenweight,
+			flexwintitle_floatweight,
+			passx,
+			tabfn,
+			arg,
+			a
+		);
+		return 1;
+	}
+
 	/* tiled mode */
-	} else {
-		den = clientsnmaster * flexwintitle_masterweight
-		    + (clientsnstack + clientsnstack2) * flexwintitle_stackweight
-		    + clientsnhidden * flexwintitle_hiddenweight
-		    + clientsnfloating * flexwintitle_floatweight;
-		w = (tabw - (n - 1) * sepw) / den;
-		r = (tabw - (n - 1) * sepw) % den;
+	den = clientsnmaster * flexwintitle_masterweight
+	    + (clientsnstack + clientsnstack2) * flexwintitle_stackweight
+	    + clientsnhidden * flexwintitle_hiddenweight
+	    + clientsnfloating * flexwintitle_floatweight;
+	w = (tabw - (n - 1) * sepw) / den;
+	r = (tabw - (n - 1) * sepw) % den;
 
-		rw = r / n; // rest incr per client
-		rr = r % n; // rest rest
+	rw = r / n; // rest incr per client
+	rr = r % n; // rest rest
 
-		if (mirror) {
-			if (!center && clientsnstack2) {
-				order[0] = 3;
-				order[1] = 2;
-				order[2] = 1;
-			} else {
-				order[0] = 2;
-				order[1] = 1;
-			}
-		} else if (center && clientsnstack2) {
+	if (mirror) {
+		if (!center && clientsnstack2) {
 			order[0] = 3;
+			order[1] = 2;
+			order[2] = 1;
+		} else {
+			order[0] = 2;
 			order[1] = 1;
-			order[2] = 2;
 		}
+	} else if (center && clientsnstack2) {
+		order[0] = 3;
+		order[1] = 1;
+		order[2] = 2;
+	}
 
-		if (clientsnmaster && flexwintitle_masterweight)
-			mas_w = clientsnmaster * rw + w * clientsnmaster * flexwintitle_masterweight + (rr > 0 ? MIN(rr, clientsnmaster) : 0) + (clientsnmaster - 1) * sepw;
-		rr -= clientsnmaster;
-		if (clientsnstack && flexwintitle_stackweight)
-			st1_w = clientsnstack * (rw + w * flexwintitle_stackweight) + (rr > 0 ? MIN(rr, clientsnstack) : 0) + (clientsnstack - 1) * sepw;
-		rr -= clientsnstack;
-		if (clientsnstack2 && flexwintitle_stackweight)
-			st2_w = clientsnstack2 * (rw + w * flexwintitle_stackweight) + (rr > 0 ? MIN(rr, clientsnstack2) : 0) + (clientsnstack2 - 1) * sepw;
-		rr -= clientsnstack2;
-		if (clientsnhidden && flexwintitle_hiddenweight)
-			hid_w = clientsnhidden * (rw + w * flexwintitle_hiddenweight) + (rr > 0 ? MIN(rr, clientsnhidden) : 0) + (clientsnhidden - 1) * sepw;
-		rr -= clientsnhidden;
-		if (clientsnfloating && flexwintitle_floatweight)
-			flt_w = clientsnfloating * (rw + w * flexwintitle_floatweight) + (rr > 0 ? MIN(rr, clientsnfloating) : 0) + (clientsnfloating - 1) * sepw;
-		if (rr > 0)
-			mas_w += rr;
+	if (clientsnmaster && flexwintitle_masterweight)
+		mas_w = clientsnmaster * rw + w * clientsnmaster * flexwintitle_masterweight + (rr > 0 ? MIN(rr, clientsnmaster) : 0) + (clientsnmaster - 1) * sepw;
+	rr -= clientsnmaster;
+	if (clientsnstack && flexwintitle_stackweight)
+		st1_w = clientsnstack * (rw + w * flexwintitle_stackweight) + (rr > 0 ? MIN(rr, clientsnstack) : 0) + (clientsnstack - 1) * sepw;
+	rr -= clientsnstack;
+	if (clientsnstack2 && flexwintitle_stackweight)
+		st2_w = clientsnstack2 * (rw + w * flexwintitle_stackweight) + (rr > 0 ? MIN(rr, clientsnstack2) : 0) + (clientsnstack2 - 1) * sepw;
+	rr -= clientsnstack2;
+	if (clientsnhidden && flexwintitle_hiddenweight)
+		hid_w = clientsnhidden * (rw + w * flexwintitle_hiddenweight) + (rr > 0 ? MIN(rr, clientsnhidden) : 0) + (clientsnhidden - 1) * sepw;
+	rr -= clientsnhidden;
+	if (clientsnfloating && flexwintitle_floatweight)
+		flt_w = clientsnfloating * (rw + w * flexwintitle_floatweight) + (rr > 0 ? MIN(rr, clientsnfloating) : 0) + (clientsnfloating - 1) * sepw;
+	if (rr > 0)
+		mas_w += rr;
 
-		for (i = 0, x = offx; i < LENGTH(order); i++) {
-			w = 0;
-			switch (order[i]) {
-			case 1:
-				if (clientsnmaster) {
-					w = mas_w;
-					flextitledrawarea(ws, ws->clients, x, w, clientsnmaster, 0, 1, 0, 0, passx, tabfn, arg, a); // master
-				}
-				break;
-			case 2:
-				if (clientsnstack) {
-					w = st1_w;
-					flextitledrawarea(ws, nthtiled(ws->clients, clientsnmaster + 1, 0), x, w, clientsnstack, 0, 1, 0, 0, passx, tabfn, arg, a); // stack1
-				}
-				break;
-			case 3:
-				if (clientsnstack2) {
-					w = st2_w;
-					flextitledrawarea(ws, nthtiled(ws->clients, clientsnmaster + clientsnstack + 1, 0), x, w, clientsnstack2, 0, 1, 0, 0, passx, tabfn, arg, a); // stack2
-				}
-				break;
-			case 4:
-				if (clientsnhidden) {
-					w = hid_w;
-					flextitledrawarea(ws, ws->clients, x, w, clientsnhidden, 0, 0, 1, 0, passx, tabfn, arg, a); // hidden
-				}
-				break;
-			case 5:
-				if (clientsnfloating) {
-					w = flt_w;
-					flextitledrawarea(ws, ws->clients, x, w, clientsnfloating, 0, 0, 0, 1, passx, tabfn, arg, a); // floating
-				}
-				break;
+	for (i = 0, x = offx; i < LENGTH(order); i++) {
+		w = 0;
+		switch (order[i]) {
+		case 1:
+			if (clientsnmaster) {
+				w = mas_w;
+				flextitledrawarea(ws, ws->clients, x, w, clientsnmaster, 0, 1, 0, 0, passx, tabfn, arg, a); // master
 			}
-			x += w;
-			if (!drawpowerline && w)
-				x += flexwintitle_separator;
+			break;
+		case 2:
+			if (clientsnstack) {
+				w = st1_w;
+				flextitledrawarea(ws, nthtiled(ws->clients, clientsnmaster + 1, 0), x, w, clientsnstack, 0, 1, 0, 0, passx, tabfn, arg, a); // stack1
+			}
+			break;
+		case 3:
+			if (clientsnstack2) {
+				w = st2_w;
+				flextitledrawarea(ws, nthtiled(ws->clients, clientsnmaster + clientsnstack + 1, 0), x, w, clientsnstack2, 0, 1, 0, 0, passx, tabfn, arg, a); // stack2
+			}
+			break;
+		case 4:
+			if (clientsnhidden) {
+				w = hid_w;
+				flextitledrawarea(ws, ws->clients, x, w, clientsnhidden, 0, 0, 1, 0, passx, tabfn, arg, a); // hidden
+			}
+			break;
+		case 5:
+			if (clientsnfloating) {
+				w = flt_w;
+				flextitledrawarea(ws, ws->clients, x, w, clientsnfloating, 0, 0, 0, 1, passx, tabfn, arg, a); // floating
+			}
+			break;
 		}
+		x += w;
+		if (!drawpowerline && w)
+			x += flexwintitle_separator;
 	}
 	return 1;
 }
