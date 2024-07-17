@@ -7,6 +7,16 @@ function run {
   fi
 }
 
+echo "###############################################################################"
+echo "Switch to azerty keyboard layout"
+echo "###############################################################################"
+echo
+
+if grep -q 'Option "XkbLayout" "be"' /etc/X11/xorg.conf.d/00-keyboard.conf; then
+	echo "setxkbmap be launched"
+	setxkbmap be
+fi
+
 #run "xrandr --output VGA-1 --primary --mode 1360x768 --pos 0x0 --rotate normal"
 #run "xrandr --output HDMI2 --mode 1920x1080 --pos 1920x0 --rotate normal --output HDMI1 --primary --mode 1920x1080 --pos 0x0 --rotate normal --output VIRTUAL1 --off"
 #run xrandr --output eDP-1 --primary --mode 1368x768 --pos 0x0 --rotate normal --output DP-1 --off --output HDMI-1 --off --output DP-2 --off --output HDMI-2 --off
