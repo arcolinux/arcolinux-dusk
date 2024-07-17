@@ -25,6 +25,7 @@ duskc:
 clean:
 	rm -f dusk ${OBJ}
 	rm -f duskc
+	rm -f config.h
 
 install: all
 	mkdir -p ${DESTDIR}${PREFIX}/bin
