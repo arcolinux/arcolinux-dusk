@@ -15,4 +15,5 @@
 
 
 cd ./etc/skel/.config/arco-dusk/
+make clean
 make

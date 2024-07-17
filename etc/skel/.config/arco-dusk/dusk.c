@@ -262,6 +262,7 @@ typedef struct Workspace Workspace;
 typedef struct Client Client;
 struct Client {
 	char name[256];
+	char altname[256];
 	char label[32];
 	char iconpath[256];  /* maximum file path length under linux is 4096 bytes */
 	float mina, maxa;
@@ -365,6 +366,7 @@ typedef struct {
 	const char swallowedby;
 	const char swallowkey;
 	const char *iconpath;
+	const char *alttitle;
 	int resume;
 } Rule;
 
@@ -661,6 +663,9 @@ applyrules(Client *c)
 
 			if (r->iconpath)
 				load_icon_from_png_image(c, r->iconpath);
+
+			if (r->alttitle)
+				strlcpy(c->altname, r->alttitle, sizeof c->altname);
 
 			if (enabled(Debug) || DEBUGGING(c))
 				fprintf(stderr, "applyrules: client rule %d matched:\n    class: %s\n    role: %s\n    instance: %s\n    title: %s\n    wintype: %s\n    flags: %lu\n    floatpos: %s\n    workspace: %s\n    label: %s\n",
@@ -1643,31 +1648,47 @@ destroynotify(XEvent *e)
 {
 	Client *c;
 	Bar *bar;
-	Workspace *ws = NULL;
+	Window focus_return;
+	int revert_to_return;
 	XDestroyWindowEvent *ev = &e->xdestroywindow;
 
 	if ((c = wintoclient(ev->window))) {
-		ws = c->ws;
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for client %s\n", c->name);
 		unmanage(c, 1);
-	} else if ((c = swallowingparent(ev->window))) {
-		ws = c->ws;
+		return c->ws;
+	}
+
+	if ((c = swallowingparent(ev->window))) {
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: received event for swallowing client %s\n", c->name);
 		unmanage(c->swallowing, 1);
-	} else if (systray && (c = wintosystrayicon(ev->window))) {
+		return c->ws;
+	}
+
+	if (systray && (c = wintosystrayicon(ev->window))) {
 		if (enabled(Debug) || DEBUGGING(c))
 			fprintf(stderr, "destroynotify: removing systray icon for client %s\n", c->name);
 		removesystrayicon(c);
 		drawbarwin(systray->bar);
-	} else if ((bar = wintobar(ev->window))) {
+		return NULL;
+	}
+
+	if ((bar = wintobar(ev->window))) {
 		if (enabled(Debug))
 			fprintf(stderr, "destroynotify: received event for bar %s\n", bar->name);
 		recreatebar(bar);
+		return NULL;
 	}
 
-	return ws;
+	/* Give input focus back to the selected client when a DestroyNotify event is received
+	 * for an unmanaged window and the selected client does not have input focus. */
+	XGetInputFocus(dpy, &focus_return, &revert_to_return);
+	if (selws->sel && selws->sel->win != focus_return) {
+		setfocus(selws->sel);
+	}
+
+	return NULL;
 }
 
 void
@@ -2862,8 +2883,11 @@ void
 resize(Client *c, int tx, int ty, int tw, int th, int interact)
 {
 	int wh = tw, hh = th;
-	if (ISLOCKED(c))
+	if (ISLOCKED(c)) {
+		c->x = tx;
+		c->y = ty;
 		return;
+	}
 	show(c);
 	if (applysizehints(c, &tx, &ty, &wh, &hh, interact))
 		resizeclientpad(c, tx, ty, wh, hh, tw, th);

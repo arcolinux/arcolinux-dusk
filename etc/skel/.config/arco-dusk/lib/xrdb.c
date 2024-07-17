@@ -72,7 +72,7 @@ loadxrdbconfig(XrmDatabase xrdb, char *name, enum resource_type rtype, void *dst
 }
 
 void
-loadxrdb()
+loadxrdb(void)
 {
 	Display *display;
 	char * resm;
@@ -175,6 +175,8 @@ xrdb(const Arg *arg)
 {
 	loadxrdb();
 	setbackground();
+	if (systray)
+		XMoveWindow(dpy, systray->win, -10000, -10000);
 	arrange(NULL);
 	focus(NULL);
 }
