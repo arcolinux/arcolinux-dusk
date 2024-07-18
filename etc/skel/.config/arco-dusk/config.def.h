@@ -3,22 +3,22 @@
 /* appearance */
 static const unsigned int borderpx       = 2;   /* border pixel of windows */
 static const unsigned int snap           = 32;  /* snap pixel */
-static const unsigned int gappih         = 5;   /* horiz inner gap between windows */
-static const unsigned int gappiv         = 5;   /* vert inner gap between windows */
-static const unsigned int gappoh         = 5;   /* horiz outer gap between windows and screen edge */
-static const unsigned int gappov         = 5;   /* vert outer gap between windows and screen edge */
-static const unsigned int gappfl         = 5;   /* gap between floating windows (when relevant) */
+static const unsigned int gappih         = 10;   /* horiz inner gap between windows */
+static const unsigned int gappiv         = 10;   /* vert inner gap between windows */
+static const unsigned int gappoh         = 10;   /* horiz outer gap between windows and screen edge */
+static const unsigned int gappov         = 10;   /* vert outer gap between windows and screen edge */
+static const unsigned int gappfl         = 10;   /* gap between floating windows (when relevant) */
 static const unsigned int smartgaps_fact = 0;   /* smartgaps factor when there is only one client; 0 = no gaps, 3 = 3x outer gaps */
 
 static unsigned int attachdefault        = AttachAside; // AttachMaster, AttachAbove, AttachAside, AttachBelow, AttachBottom
 
 static const int initshowbar             = 1;   /* 0 means no bar */
 
-static const int bar_height              = 0;   /* 0 means derive from font, >= 1 explicit height */
+static const int bar_height              = 24;   /* 0 means derive from font, >= 1 explicit height */
 static const int vertpad                 = borderpx;  /* vertical (outer) padding of bar */
 static const int sidepad                 = borderpx;  /* horizontal (outer) padding of bar */
 
-static const int iconsize                = 16;  /* icon size */
+static const int iconsize                = 24;  /* icon size */
 static const int iconspacing             = 5;   /* space between icon and title */
 
 static const float pfact                 = 0.25; /* size of workspace previews relative to monitor size */
@@ -26,12 +26,12 @@ static const float pfact                 = 0.25; /* size of workspace previews r
 static int floatposgrid_x                = 5;   /* float grid columns */
 static int floatposgrid_y                = 5;   /* float grid rows */
 
-static const int horizpadbar             = 2;   /* horizontal (inner) padding for statusbar (increases lrpad) */
-static const int vertpadbar              = 0;   /* vertical (inner) padding for statusbar (increases bh, overridden by bar_height) */
+static const int horizpadbar             = 10;   /* horizontal (inner) padding for statusbar (increases lrpad) */
+static const int vertpadbar              = 10;   /* vertical (inner) padding for statusbar (increases bh, overridden by bar_height) */
 
 static const char slopspawnstyle[]       = "-t 0 -c 0.92,0.85,0.69,0.3 -o"; /* do NOT define -f (format) here */
 static const char slopresizestyle[]      = "-t 0 -c 0.92,0.85,0.69,0.3"; /* do NOT define -f (format) here */
-static const unsigned int systrayspacing = 2;   /* systray spacing */
+static const unsigned int systrayspacing = 3;   /* systray spacing */
 static const char *toggle_float_pos      = "50% 50% 80% 80%"; // default floating position when triggering togglefloating
 static const double defaultopacity       = 0;   /* client default opacity, e.g. 0.75. 0 means don't apply opacity */
 static const double moveopacity          = 0;   /* client opacity when being moved, 0 means don't apply opacity */
@@ -125,8 +125,8 @@ static int flexwintitle_hiddenweight     = 0;  // hidden window title weight
 static int flexwintitle_floatweight      = 0;  // floating window title weight, set to 0 to not show floating windows
 static int flexwintitle_separator        = 0;  // width of client separator
 
-static const char *fonts[]               = { "monospace:size=10" };
-static       char dmenufont[60]          = "monospace:size=10";
+static const char *fonts[]               = { "monospace:size=12" };
+static       char dmenufont[60]          = "monospace:size=14";
 
 static char dmenunormfgcolor[] = "#C6BDBD";
 static char dmenunormbgcolor[] = "#180A13";
@@ -213,7 +213,6 @@ static const Rule clientrules[] = {
 	{ .class = "yakuake", .flags = Disallowed },
 	{ .class = "konqueror", .flags = Disallowed },
 	
-	{ .class = "Arcologout.py", .flags = AlwaysOnTop|Centered },
 	{ .wintype = "_KDE_NET_WM_WINDOW_TYPE_OVERRIDE", .flags = Unmanaged },
 	{ .wintype = WTYPE "DESKTOP", .flags = Unmanaged|Lower },
 	{ .wintype = WTYPE "DOCK", .flags = Unmanaged|Raise },
